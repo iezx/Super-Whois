@@ -10,7 +10,7 @@
 <body>
     <h1>Domain Name, IP WHOIS Search System</h1>
     <form method="post" action="">
-        <input type="text" name="query" placeholder="Please enter!" required>
+    <input type="text" name="query" placeholder="Please enter!" onblur="removeSpaces(this)" required>
         <select name="type">
             <option value="whois" <?php if($_POST['type'] == 'whois') echo 'selected'; ?>>Domain WHOIS Search</option>
             <option value="ipwhois" <?php if($_POST['type'] == 'ipwhois') echo 'selected'; ?>>IP WHOIS Search</option>
@@ -20,6 +20,8 @@
     </form>
 
     <?php
+    //V1.0.1 支持空格判断，在提交表单之前自动去除输入中的空格
+
     error_reporting(0); // 禁用错误报告
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit'])) {
@@ -38,7 +40,7 @@
                 break;
         }
     }
-
+    // 执行 WHOIS 查询
     function performWhoisQuery($domain) {
         require_once __DIR__ . '/whois_servers.php';
         $extension = getDomainExtension($domain);
@@ -66,7 +68,7 @@
             echo '</div>';
         }
     }
-
+    // 执行 IP WHOIS 查询
     function performIPWhoisQuery($ip) {
         $server = 'whois.apnic.net';
         $result = queryWhoisServer($server, $ip);
@@ -85,10 +87,10 @@
         }
         echo '</div>';
     }
-
-    function performNSQuery($domain) {
+    // 执行 NS 查询
+    function performNSQuery($domain) { 
         $result = getNSRecords($domain);
-
+    
         echo '<div class="result">';
         if (!empty($result)) {
             echo '<h2>' . $domain . ' NS information</h2>';
@@ -102,13 +104,25 @@
         }
         echo '</div>';
     }
-
+    
+    function getNSRecords($domain) {
+        $result = array();
+        $output = @dns_get_record($domain, DNS_NS);
+        if (!empty($output)) {
+            foreach ($output as $record) {
+                $result[] = $record['target'];
+            }
+        }
+        return $result;
+    }
+    
+    // 获取域名后缀
     function getDomainExtension($domain) {
         $parts = explode('.', $domain);
         $extension = end($parts);
         return strtolower($extension);
     }
-
+    // 查询 WHOIS 服务器
     function queryWhoisServer($server, $query) {
         $result = array();
         $fp = @fsockopen($server, 43, $errno, $errstr, 10);
@@ -122,16 +136,12 @@
         return $result;
     }
 
-    function getNSRecords($domain) {
-        $result = array();
-        $output = @dns_get_record($domain, DNS_NS);
-        if (!empty($output)) {
-            foreach ($output as $record) {
-                $result[] = $record['target'];
-            }
-        }
-        return $result;
-    }
     ?>
 </body>
+<script>
+function removeSpaces(input) {
+  input.value = input.value.replace(/\s+/g, ''); // 空格去除判断
+}
+</script>
+<!--https://github.com/iezx/Super-Whois-->
 </html>
