@@ -1,7 +1,7 @@
 <?php
 $whoisServers = array(
 
-	"ga" => "whois.dot.ga",
+	"ga" => "whois.nic.ga",
 	"do" => "whois.nic.do",  
 	"gr" => "whois.1api.net",
 	"co.uk" => "whois.nic.uk",
@@ -1095,11 +1095,11 @@ $whoisServers = array(
 	"zara" => "whois.afilias-srs.net",
 	"zip" => "whois.nic.google",
 	"zm" => "whois.nic.zm",
-    	"ren"=> "whois.nic.ren",
-    	"ge"=> "www.registration.ge",
-    	"edu.ge"=> "www.registration.ge",
+    "ren"=> "whois.nic.ren",
+    "ge"=> "www.registration.ge",
+    "edu.ge"=> "www.registration.ge",
 	"zone" => "whois.donuts.co",
-   	"boston"=>"whois.nic.boston",
+    "boston"=>"whois.nic.boston",
 	"zuerich" => "whois.ksregistry.net",	
 	"net.cn" => "whois.cnnic.net.cn",
 	"org.cn" => "whois.cnnic.net.cn",
@@ -1150,7 +1150,7 @@ $whoisServers = array(
 	"edu.ge" => "whois.registration.ge",
 	"com.ge" => "whois.registration.ge",
     	"school.ge" => "whois.registration.ge",
-    	"net.ge" => "whois.registration.ge",
+   	"net.ge" => "whois.registration.ge",
     	"org.ge" => "whois.registration.ge",
     	"pvt.ge" => "whois.registration.ge",
     	"stream" => "whois.nic.stream",
@@ -1164,5 +1164,6 @@ $whoisServers = array(
     	"phd" => "whois.nic.google",
     	"nexus" => "whois.nic.google",
     	"my.id" => "whois.pandi.or.id ",
+      //数据更新于2023-06-13 这里的数据未必是最新的，通常都是whois.nic.域名后缀，欢迎补充。 By iezx https://github.com/iezx/Super-Whois/
 );
 ?>
