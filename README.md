@@ -1,5 +1,6 @@
 # Super Whois
-域名、IP WHOIS 搜索系统
+域名、IP WHOIS 搜索系统 
+支持IDN域名
 
 # 使用方法：
 1.在下方输入框中输入要查询的域名或 IP 地址，然后选择查询类型。  
@@ -11,6 +12,7 @@
     
 # Super Whois
 Domain name, IP WHOIS search system
+Support IDN domain name
 
 # Method of use: 
 1. Enter the domain name or IP address to be queried in the input box below, and then select the query type.  

@@ -22,56 +22,57 @@
     <?php
     //V1.0.1 支持空格判断，在提交表单之前自动去除输入中的空格
     //v1.0.2 更新空格判断代码
+    //v1.0.3 支持IDN域名查询，输出Whois服务器
 
-    error_reporting(0); // 禁用错误报告
+    //error_reporting(0); // 禁用错误报告代码
 
+    // 去除输入域名中的空格
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit'])) {
-        $query = $_POST['query'];
-        $type = $_POST['type'];
-    
-        // 去除输入域名中的空格代码
-        $query = str_replace(' ', '', $query);
-    
-        switch ($type) {
-            case 'whois':
-                performWhoisQuery($query);
-                break;
-            case 'ipwhois':
-                performIPWhoisQuery($query);
-                break;
-            case 'ns':
-                performNSQuery($query);
-                break;
-        }
+    $query = $_POST['query'];
+    $type = $_POST['type'];
+
+    $query = idn_to_ascii($query);
+
+    switch ($type) {
+        case 'whois':
+            performWhoisQuery($query);
+            break;
+        case 'ipwhois':
+            performIPWhoisQuery($query);
+            break;
+        case 'ns':
+            performNSQuery($query);
+            break;
     }
+}
     // 执行 WHOIS 查询
     function performWhoisQuery($domain) {
-        require_once __DIR__ . '/whois_servers.php';
-        $extension = getDomainExtension($domain);
+    require_once __DIR__ . '/whois_servers.php';
+    $extension = getDomainExtension($domain);
 
-        if (isset($whoisServers[$extension])) {
-            $server = $whoisServers[$extension];
-            $result = queryWhoisServer($server, $domain);
+    if (isset($whoisServers[$extension])) {
+        $server = $whoisServers[$extension];
+        $result = queryWhoisServer($server, $domain);
 
-            echo '<div class="result">';
-            if (!empty($result)) {
-                echo '<h2>' . $domain . ' WHOIS information</h2>';
-                echo '<p>Searched from: ' . $server . '</p>';
-                echo '<ul>';
-                foreach ($result as $line) {
-                    echo '<li>' . $line . '</li>';
-                }
-                echo '</ul>';
-            } else {
-                echo '<h2>Unable to find WHOiS information of the domain name: The domain name may not be registered or the server is not searched.</h2>';
+        echo '<div class="result">';
+        if (!empty($result)) {
+            echo '<h2>' . $domain . ' WHOIS Information</h2>';
+            echo '<p>Searched from: ' . $server . '</p>'; // 输出Whois服务器
+            echo '<ul>';
+            foreach ($result as $line) {
+                echo '<li>' . $line . '</li>';
             }
-            echo '</div>';
+            echo '</ul>';
         } else {
-            echo '<div class="result">';
-            echo '<h2>WHOIS search for this domain name is not supported.</h2>';
-            echo '</div>';
+            echo '<h2>Unable to find WHOIS information for the domain name. The domain name may not be registered or the server is not accessible.</h2>';
         }
+        echo '</div>';
+    } else {
+        echo '<div class="result">';
+        echo '<h2>WHOIS search for this domain name is not supported.</h2>';
+        echo '</div>';
     }
+}
     // 执行 IP WHOIS 查询
     function performIPWhoisQuery($ip) {
         $server = 'whois.apnic.net';

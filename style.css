@@ -34,6 +34,7 @@ input[type="submit"] {
 .result h2 {
     margin: 0;
     padding-bottom: 10px;
+    text-transform:uppercase;
 }
 
 ul {
