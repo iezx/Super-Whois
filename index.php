@@ -1,11 +1,12 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Domain Name, IP WHOIS Search</title>
+    <title>Super Whois</title>
     <link rel="stylesheet" type="text/css" href="style.css">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="description" content="Welcome to Domain Name, IP WHOIS Search. You can check domain whois and ipv4 ipv6 whois." />
     <link rel="shortcut icon" href="https://cdn.807070.xyz/img/new/2023/01/14/63c2a68d3bb10.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 <body>
     <h1>Domain Name, IP WHOIS Search System</h1>
