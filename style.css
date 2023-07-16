@@ -54,7 +54,7 @@ a {
     input[type="text"],
     select {
         border-radius: 4px;
-        width: 16%;/* 搜索栏大小 */
+        width: 16%;/* 搜索栏*/
         box-sizing: border-box;/* 包含内边距和边框在内的总宽度 */
     }
 
@@ -62,7 +62,7 @@ a {
         padding: 10px;
         font-size: 16px;
         background-color: #4CAF50;
-        color: white;
+        color: white; /* 提交栏 */
         border: none;
         cursor: pointer;
         width: 6%;
@@ -76,7 +76,7 @@ a {
         justify-content: center;
         align-items: center;
         flex-direction: column;
-        max-width: 600px;  /* 提交栏大小 */
+        max-width: 600px;  /*输出CSS*/
         margin-left: auto;
         margin-right: auto;
     }
@@ -88,7 +88,7 @@ a {
     input[type="text"],
     select {
         border-radius: 4px;
-        width: 100%;/* 搜索栏大小 */
+        width: 100%;/* 搜索栏*/
         box-sizing: border-box;/* 包含内边距和边框在内的总宽度 */
     }
 
@@ -99,7 +99,7 @@ a {
         color: white;
         border: none;
         cursor: pointer;
-        width: 100%;
+        width: 100%;  /* 提交栏 */
         margin-top: 10px;
     }
 
@@ -110,7 +110,7 @@ a {
         justify-content: center;
         align-items: center;
         flex-direction: column;
-        max-width: 600px;  /* 提交栏大小 */
+        max-width: 600px; /*输出CSS*/
         margin-left: auto;
         margin-right: auto;
     }
