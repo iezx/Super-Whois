@@ -1,3 +1,5 @@
+/* 通用适配 */
+
 body {
     font-family: Arial, sans-serif;
     margin: 20px;
@@ -17,39 +19,12 @@ select {
     padding: 10px;
     font-size: 16px;
     border: 1px solid #ccc;
-    border-radius: 4px;
-    width: 16%; /* 搜索栏大小 */
-    box-sizing: border-box; /* 包含内边距和边框在内的总宽度 */
 }
-
-input[type="submit"] {
-    padding: 10px 20px;
-    font-size: 16px;
-    background-color: #4CAF50;
-    color: white;
-    border: none;
-    cursor: pointer;
-    width: 5%; /* 提交栏大小 */
-    margin-top: 10px;
-}
-
-.result {
-    margin-top: 15px;
-    padding: 10px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-direction: column;
-    max-width: 600px; /* 设置最大宽度 */
-    margin-left: auto; 
-    margin-right: auto; 
-}
-
 
 .result h2 {
     text-transform: uppercase;
     text-align: center;
-    margin-bottom: 10px; /* 在标题下方添加一些空格 */
+    margin-bottom: 10px;
 }
 
 .result p {
@@ -62,13 +37,81 @@ ul {
 }
 
 ul li {
-    margin-bottom: 5px; 
+    margin-bottom: 5px;
 }
 
 footer {
-    text-align: center; 
+    text-align: center;
 }
-a { color: #20a53a;
-    text-decoration: none;  /*链接颜色 */
-    
+a {
+    color: #20a53a;
+    text-decoration: none;/*链接颜色 */
+} 
+
+/* 适配电脑用户 */
+
+@media screen and (min-width: 768px) {
+    input[type="text"],
+    select {
+        border-radius: 4px;
+        width: 16%;/* 搜索栏大小 */
+        box-sizing: border-box;/* 包含内边距和边框在内的总宽度 */
+    }
+
+    input[type="submit"] {
+        padding: 10px;
+        font-size: 16px;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        cursor: pointer;
+        width: 6%;
+        margin-top: 10px;
+    }
+
+    .result {
+        margin-top: 15px;
+        padding: 10px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        max-width: 600px;  /* 提交栏大小 */
+        margin-left: auto;
+        margin-right: auto;
+    }
+}
+
+/* 适配手机用户 */
+
+@media screen and (max-width: 767px) {
+    input[type="text"],
+    select {
+        border-radius: 4px;
+        width: 100%;/* 搜索栏大小 */
+        box-sizing: border-box;/* 包含内边距和边框在内的总宽度 */
+    }
+
+    input[type="submit"] {
+        padding: 10px 20px;
+        font-size: 16px;
+        background-color: #4CAF50;
+        color: white;
+        border: none;
+        cursor: pointer;
+        width: 100%;
+        margin-top: 10px;
+    }
+
+    .result {
+        margin-top: 15px;
+        padding: 10px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        max-width: 600px;  /* 提交栏大小 */
+        margin-left: auto;
+        margin-right: auto;
+    }
 }
