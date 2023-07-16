@@ -10,7 +10,7 @@
 <body>
     <h1>Domain Name, IP WHOIS Search System</h1>
     <form method="post" action="">
-    <input type="text" name="query" placeholder="Please enter!" required>
+    <input type="text" name="query" placeholder="Please enter and press Enquiry." required>
         <select name="type">
             <option value="whois" <?php if($_POST['type'] == 'whois') echo 'selected'; ?>>Domain WHOIS Search</option>
             <option value="ipwhois" <?php if($_POST['type'] == 'ipwhois') echo 'selected'; ?>>IP WHOIS Search</option>
@@ -18,11 +18,12 @@
         </select>
         <input type="submit" name="submit" value="Enquiry">
     </form>
-
+    
     <?php
     //V1.0.1 支持空格判断，在提交表单之前自动去除输入中的空格
     //v1.0.2 更新空格判断代码
     //v1.0.3 支持IDN域名查询，输出Whois服务器
+    //v1.0.4 CSS代码更新和优化
 
     //error_reporting(0); // 禁用错误报告代码
 
@@ -45,7 +46,7 @@
             break;
     }
 }
-    // 执行 WHOIS 查询
+// 执行 WHOIS 查询
     function performWhoisQuery($domain) {
     require_once __DIR__ . '/whois_servers.php';
     $extension = getDomainExtension($domain);
@@ -143,5 +144,7 @@
 
     ?>
 </body>
-<!--https://github.com/iezx/Super-Whois-->
+<footer>
+    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.0.4</p>
+</footer>
 </html>
