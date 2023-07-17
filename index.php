@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>Super Whois</title>
     <link rel="stylesheet" type="text/css" href="style.css">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
@@ -31,6 +32,7 @@
     
     <?php
     //v1.0.5  1.优化搜索代码 2.更新空格判断代码
+    //v1.0.6  1.添加保留域名和是否注册域名检测。 2.优化CSS
 
     //error_reporting(0); // 禁用错误报告代码
 
@@ -58,34 +60,41 @@
         }
     }
 
-    // 执行 WHOIS 查询
-    function performWhoisQuery($domain) {
-        require_once __DIR__ . '/whois_servers.php';
-        $extension = getDomainExtension($domain);
+// 执行 WHOIS 查询
+function performWhoisQuery($domain) {
+    require_once __DIR__ . '/whois_servers.php';
+    $extension = getDomainExtension($domain);
 
-        if (isset($whoisServers[$extension])) {
-            $server = $whoisServers[$extension];
-            $result = queryWhoisServer($server, $domain);
+    if (isset($whoisServers[$extension])) {
+        $server = $whoisServers[$extension];
+        $result = queryWhoisServer($server, $domain);
+        
+        $isRegistered = isDomainRegistered($result);
 
-            echo '<div class="result">';
-            if (!empty($result)) {
-                echo '<h2>' . $domain . ' WHOIS Information</h2>';
-                echo '<p>Searched from: ' . $server . '</p>'; // 输出Whois服务器
-                echo '<ul>';
-                foreach ($result as $line) {
-                    echo '<li>' . $line . '</li>';
-                }
-                echo '</ul>';
-            } else {
-                echo '<h2>Unable to find WHOIS information for the domain name. The domain name may not be registered or the server is not accessible.</h2>';
+
+        echo '<div class="result">';
+        if (!empty($result)) {
+            echo '<h2>' . $domain . ' WHOIS Information</h2>';
+            echo '<p>Searched from: ' . $server . '</p>';
+            echo '<p>Reserved domain name: ' . (isDomainReserved($result) ? 'Reserved' : 'Not Reserved') .'&nbsp;(Only Reference)'.'</p>';
+            echo '<p>Domain Registration: ' . ($isRegistered ? 'Registered' : 'Unregistered') .'</p>';
+            echo '<ul>';
+            foreach ($result as $line) {
+                echo '<li>' . $line . '</li>';
             }
-            echo '</div>';
+            echo '</ul>';
         } else {
-            echo '<div class="result">';
-            echo '<h2>WHOIS search for this domain name is not supported.</h2>';
-            echo '</div>';
+            echo '<h2>Unable to find WHOIS information for the domain name. The domain name may not be registered or the server is not accessible.</h2>';
         }
+        echo '</div>';
+    } else {
+        echo '<div class="result">';
+        echo '<h2>WHOIS search for this domain name is not supported.</h2>';
+        echo '</div>';
     }
+}
+
+
 
     // 执行 IP WHOIS 查询
     function performIPWhoisQuery($ip) {
@@ -156,9 +165,38 @@
         }
         return $result;
     }
-    ?>
+    
+// 判断域名是否保留
+function isDomainReserved($whoisResult) {
+    $reservedKeywords = array('reserved', '保留域名', 'reserved domain name', '保留','keep','clientHold','serverHold');
+
+    foreach ($whoisResult as $line) {
+        foreach ($reservedKeywords as $keyword) {
+            if (stripos($line, $keyword) !== false) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+// 判断域名是否已注册
+function isDomainRegistered($whoisResult) {
+    $registeredKeywords = array('Registrar');
+
+    foreach ($whoisResult as $line) {
+        foreach ($registeredKeywords as $keyword) {
+            if (stripos($line, $keyword) !== false) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+?>
 </body>
 <footer>
-    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.0.5</p>
+    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.0.6</p>
 </footer>
 </html>
