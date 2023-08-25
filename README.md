@@ -7,9 +7,8 @@
 2.点击提交按钮进行查询。  
 3.查询结果将会显示在下方。  
 
-v1.0.4 新版本  
-![1689485920744.png](https://cdn.807070.xyz/img/new/2023/07/16/64b382613c02b.png)
-![1689486123241.png](https://cdn.807070.xyz/img/new/2023/07/16/64b3832d0a874.png)
+搜索外观  
+![1692954131176.png](https://cdn.807070.xyz/img/new/2023/08/25/1e1sTe8C1W.png)
     
 # Super Whois
 Domain name, IP WHOIS search system  
@@ -20,8 +19,8 @@ Support IDN domain name
 2. Click on the Enquiry button.
 3. The result will be displayed below.  
 
-New version v1.0.4  
-![1689485920744.png](https://cdn.807070.xyz/img/new/2023/07/16/64b382613c02b.png)
-![1689486123241.png](https://cdn.807070.xyz/img/new/2023/07/16/64b3832d0a874.png)
+Search Appearance  
+![1692954131176.png](https://cdn.807070.xyz/img/new/2023/08/25/1e1sTe8C1W.png)
+
 
 
