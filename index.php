@@ -31,8 +31,7 @@
     </form>
     
     <?php
-    //v1.0.5  1.优化搜索代码 2.更新空格判断代码
-    //v1.0.6  1.添加保留域名和是否注册域名检测。 2.优化CSS
+    //v1.0.7 1.优化代码
 
     //error_reporting(0); // 禁用错误报告代码
 
@@ -59,9 +58,9 @@
                 break;
         }
     }
-
-// 执行 WHOIS 查询
-function performWhoisQuery($domain) {
+    
+    // 执行 WHOIS 查询
+    function performWhoisQuery($domain) {
     require_once __DIR__ . '/whois_servers.php';
     $extension = getDomainExtension($domain);
 
@@ -166,8 +165,8 @@ function performWhoisQuery($domain) {
         return $result;
     }
     
-// 判断域名是否保留
-function isDomainReserved($whoisResult) {
+    // 判断域名是否保留
+    function isDomainReserved($whoisResult) {
     $reservedKeywords = array('reserved', '保留域名', 'reserved domain name', '保留','keep','clientHold','serverHold');
 
     foreach ($whoisResult as $line) {
@@ -180,23 +179,29 @@ function isDomainReserved($whoisResult) {
 
     return false;
 }
-// 判断域名是否已注册
-function isDomainRegistered($whoisResult) {
-    $registeredKeywords = array('Registrar');
+    // 判断域名是否已注册
+    function isDomainRegistered($whoisResult) {
+        $registeredPatterns = array(
+            '/^\s*Registrar:\s+/i',
+            '/^\s*Creation Date:\s+/i',
+            '/^\s*Domain Name:\s+/i',
+            '/^\s*Registry Domain ID:\s+/i'
+        );
 
-    foreach ($whoisResult as $line) {
-        foreach ($registeredKeywords as $keyword) {
-            if (stripos($line, $keyword) !== false) {
-                return true;
+        foreach ($whoisResult as $line) {
+            foreach ($registeredPatterns as $pattern) {
+                if (preg_match($pattern, $line)) {
+                    return true;
+                }
             }
         }
+
+        return false;
     }
 
-    return false;
-}
 ?>
 </body>
 <footer>
-    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.0.6</p>
+    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.0.7</p>
 </footer>
 </html>
