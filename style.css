@@ -31,6 +31,27 @@ select {
     text-align: center;
 }
 
+.details-toggle {
+    cursor: pointer;
+    text-decoration: none; 
+    color: #007bff;
+    margin-bottom: 10px;
+}
+
+.details-toggle::after {
+    content: "\25BC"; /* 表示尖头向下 */
+    display: inline-block;
+    margin-left: 5px;
+}
+
+.details-content {
+    display: none;
+}
+
+.details-toggle.open::after {
+    content: "\25B2"; /* 表示尖头向上 */
+}
+
 ul {
     list-style-type: none;
     padding: 0;
@@ -45,7 +66,7 @@ footer {
 }
 a {
     color: #20a53a;
-    text-decoration: none;/*链接颜色 */
+    text-decoration: none;/*链接颜色*/
 } 
 
 /* 适配电脑用户 */
@@ -77,11 +98,22 @@ a {
         justify-content: center;
         align-items: center;
         flex-direction: column;
-        max-width: 600px;  /*输出CSS*/
+        max-width: 600px;  
         margin-left: auto;
         margin-right: auto;
     }
+
+
+    .result .info-container {
+        box-sizing: border-box;
+        background-color: #f0f0f0; /* 灰色背景 */
+        padding: 10px; /* 适当的内边距 */
+        margin: 15px 0 5px 0; /* 适当的外边距 */
+        border-radius: 15px; /* 使用椭圆形状的边角 */
+    }
+    
 }
+
 
 /* 适配手机用户 */
 
@@ -112,8 +144,9 @@ a {
         justify-content: center;
         align-items: center;
         flex-direction: column;
-        max-width: 600px; /*输出CSS*/
+        max-width: 600px; 
         margin-left: auto;
         margin-right: auto;
+        
     }
 }

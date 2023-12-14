@@ -12,28 +12,28 @@
 <body>
     <h1>Domain Name, IP WHOIS Search System</h1>
     <form method="post" action="">
-        <input type="text" name="query" placeholder="Please enter and press Enquiry." required value="<?php echo isset($_POST['query']) ? removeSpaces($_POST['query']) : ''; ?>">
+        <input type="text" name="query" placeholder="Please enter and press Enquiry." required value="<?php echo isset($_POST['query']) ? htmlspecialchars(removeSpaces($_POST['query']), ENT_QUOTES, 'UTF-8') : ''; ?>">
         <select name="type">
-        <?php
-        $options = [
-            'whois' => 'Domain WHOIS Search',
-            'ipwhois' => 'IP WHOIS Search',
-            'ns' => 'Domain NS Search'
-        ];
+            <?php
+            $options = [
+                'whois' => 'Domain WHOIS Search',
+                'ipwhois' => 'IP WHOIS Search',
+                'ns' => 'Domain NS Search'
+            ];
 
-        foreach ($options as $value => $label) {
-            $selected = (isset($_POST['type']) && $_POST['type'] === $value) ? 'selected' : '';
-            echo '<option value="' . $value . '" ' . $selected . '>' . $label . '</option>';
-        }
-        ?>
+            foreach ($options as $value => $label) {
+                $selected = (isset($_POST['type']) && $_POST['type'] === $value) ? 'selected' : '';
+                echo '<option value="' . $value . '" ' . $selected . '>' . $label . '</option>';
+            }
+            ?>
         </select>
         <input type="submit" name="submit" value="Enquiry">
     </form>
-    
-    <?php
-    //v1.0.7 1.优化代码
 
-    //error_reporting(0); // 禁用错误报告代码
+    <?php
+    // v1.0.8 1.优化和更新代码，CSS
+
+    // error_reporting(0); // 禁用错误报告代码
 
     // 去除输入域名中的所有空格
     function removeSpaces($input) {
@@ -58,42 +58,45 @@
                 break;
         }
     }
-    
+
     // 执行 WHOIS 查询
     function performWhoisQuery($domain) {
-    require_once __DIR__ . '/whois_servers.php';
-    $extension = getDomainExtension($domain);
+        require_once __DIR__ . '/whois_servers.php';
+        $extension = getDomainExtension($domain);
 
-    if (isset($whoisServers[$extension])) {
-        $server = $whoisServers[$extension];
-        $result = queryWhoisServer($server, $domain);
-        
-        $isRegistered = isDomainRegistered($result);
+        if (isset($whoisServers[$extension])) {
+            $server = $whoisServers[$extension];
+            $result = queryWhoisServer($server, $domain);
 
+            $isRegistered = isDomainRegistered($result);
 
-        echo '<div class="result">';
-        if (!empty($result)) {
-            echo '<h2>' . $domain . ' WHOIS Information</h2>';
-            echo '<p>Searched from: ' . $server . '</p>';
-            echo '<p>Reserved domain name: ' . (isDomainReserved($result) ? 'Reserved' : 'Not Reserved') .'&nbsp;(Only Reference)'.'</p>';
-            echo '<p>Domain Registration: ' . ($isRegistered ? 'Registered' : 'Unregistered') .'</p>';
-            echo '<ul>';
-            foreach ($result as $line) {
-                echo '<li>' . $line . '</li>';
+            echo '<div class="result">';
+            if (!empty($result)) {
+                echo '<h2>' . $domain . ' WHOIS Information</h2>';
+                echo '<div class="info-container">';
+                echo '<p>Searched from: ' . $server . '</p>';
+                echo '<p>Reserved domain name: ' . (isDomainReserved($result) ? 'Reserved' : 'Not Reserved') . '&nbsp;(Only Reference)' . '</p>';
+                echo '<p>Domain Registration: ' . ($isRegistered ? 'Registered' : 'Unregistered') . '</p>';
+                echo '</div>';
+
+                echo '<h3 class="details-toggle" onclick="toggleDetails()">Show Details</h3>';
+                echo '<div class="details-content" id="details-content">';
+                echo '<ul>';
+                foreach ($result as $line) {
+                    echo '<li>' . $line . '</li>';
+                }
+                echo '</ul>';
+                echo '</div>';
+            } else {
+                echo '<h2>Unable to find WHOIS information for the domain name. The domain name may not be registered or the server is not accessible.</h2>';
             }
-            echo '</ul>';
+            echo '</div>';
         } else {
-            echo '<h2>Unable to find WHOIS information for the domain name. The domain name may not be registered or the server is not accessible.</h2>';
+            echo '<div class="result">';
+            echo '<h2>WHOIS search for this domain name is not supported.</h2>';
+            echo '</div>';
         }
-        echo '</div>';
-    } else {
-        echo '<div class="result">';
-        echo '<h2>WHOIS search for this domain name is not supported.</h2>';
-        echo '</div>';
     }
-}
-
-
 
     // 执行 IP WHOIS 查询
     function performIPWhoisQuery($ip) {
@@ -116,9 +119,9 @@
     }
 
     // 执行 NS 查询
-    function performNSQuery($domain) { 
+    function performNSQuery($domain) {
         $result = getNSRecords($domain);
-    
+
         echo '<div class="result">';
         if (!empty($result)) {
             echo '<h2>' . $domain . ' NS information</h2>';
@@ -164,21 +167,22 @@
         }
         return $result;
     }
-    
+
     // 判断域名是否保留
     function isDomainReserved($whoisResult) {
-    $reservedKeywords = array('reserved', '保留域名', 'reserved domain name', '保留','keep','clientHold','serverHold');
+        $reservedKeywords = array('reserved', '保留域名', 'reserved domain name', '保留', 'keep', 'clientHold', 'serverHold');
 
-    foreach ($whoisResult as $line) {
-        foreach ($reservedKeywords as $keyword) {
-            if (stripos($line, $keyword) !== false) {
-                return true;
+        foreach ($whoisResult as $line) {
+            foreach ($reservedKeywords as $keyword) {
+                if (stripos($line, $keyword) !== false) {
+                    return true;
+                }
             }
         }
+
+        return false;
     }
 
-    return false;
-}
     // 判断域名是否已注册
     function isDomainRegistered($whoisResult) {
         $registeredPatterns = array(
@@ -199,9 +203,23 @@
         return false;
     }
 
-?>
+    ?>
 </body>
 <footer>
-    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.0.7</p>
+    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.0.8 </p>
 </footer>
+<script>
+    function toggleDetails() {
+        var detailsContent = document.getElementById('details-content');
+        var detailsToggle = document.querySelector('.details-toggle');
+
+        if (detailsContent.style.display === 'none') {
+            detailsContent.style.display = 'block';
+            detailsToggle.classList.add('open');
+        } else {
+            detailsContent.style.display = 'none';
+            detailsToggle.classList.remove('open');
+        }
+    }
+</script>
 </html>
