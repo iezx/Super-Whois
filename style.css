@@ -38,18 +38,20 @@ select {
     margin-bottom: 10px;
 }
 
-.details-toggle::after {
-    content: "\25BC"; /* 表示尖头向下 */
-    display: inline-block;
-    margin-left: 5px;
-}
 
 .details-content {
     display: none;
 }
 
+.details-toggle::after {
+    font-family: 'Font Awesome 5 Free'; /* 指定 Font Awesome 字体 */
+    content: "\f107"; /* 表示尖头向下 */
+    display: inline-block;
+    margin-left: 5px;
+}
+
 .details-toggle.open::after {
-    content: "\25B2"; /* 表示尖头向上 */
+    content: "\f106"; /* 表示尖头向上 */
 }
 
 ul {
@@ -106,14 +108,13 @@ a {
 
     .result .info-container {
         box-sizing: border-box;
-        background-color: #f0f0f0; /* 灰色背景 */
+        background-color: #e0f0f5;
         padding: 10px; /* 适当的内边距 */
         margin: 15px 0 5px 0; /* 适当的外边距 */
         border-radius: 15px; /* 使用椭圆形状的边角 */
     }
     
 }
-
 
 /* 适配手机用户 */
 

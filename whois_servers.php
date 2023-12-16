@@ -900,7 +900,7 @@ $whoisServers = array(
 "loans"=>"whois.nic.loans",
 "locker"=>"whois.nic.locker",
 "locus"=>"whois.nic.locus",
-"lol"=>"whois.uniregistry.net",
+"lol"=>"whois.nic.lol",
 "london"=>"whois-lon.mm-registry.com",
 "london"=>"whois.nic.london",
 "lotte"=>"whois.nic.gmo",
@@ -1861,5 +1861,5 @@ $whoisServers = array(
 "org.ge" => "whois.registration.ge",
 "pvt.ge" => "whois.registration.ge",
 );
-//2023-07-10
+//2023-12-15
 ?>

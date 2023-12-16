@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>Super Whois</title>
@@ -7,8 +8,10 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="description" content="Welcome to Domain Name, IP WHOIS Search. You can check domain whois and ipv4 ipv6 whois." />
     <link rel="shortcut icon" href="https://cdn.807070.xyz/img/new/2023/01/14/63c2a68d3bb10.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
+
 <body>
     <h1>Domain Name, IP WHOIS Search System</h1>
     <form method="post" action="">
@@ -18,7 +21,6 @@
             $options = [
                 'whois' => 'Domain WHOIS Search',
                 'ipwhois' => 'IP WHOIS Search',
-                'ns' => 'Domain NS Search'
             ];
 
             foreach ($options as $value => $label) {
@@ -31,12 +33,13 @@
     </form>
 
     <?php
-    // v1.0.8 1.优化和更新代码，CSS
+    // v1.0.9 1.优化CSS 2.更新和优化代码 3.NS查询功能整合
 
-    // error_reporting(0); // 禁用错误报告代码
+    // error_reporting(0); // 禁用错误报告代码 
 
     // 去除输入域名中的所有空格
-    function removeSpaces($input) {
+    function removeSpaces($input)
+    {
         return preg_replace('/\s+/', '', $input);
     }
 
@@ -53,14 +56,12 @@
             case 'ipwhois':
                 performIPWhoisQuery($query);
                 break;
-            case 'ns':
-                performNSQuery($query);
-                break;
         }
     }
 
     // 执行 WHOIS 查询
-    function performWhoisQuery($domain) {
+    function performWhoisQuery($domain)
+    {
         require_once __DIR__ . '/whois_servers.php';
         $extension = getDomainExtension($domain);
 
@@ -69,37 +70,91 @@
             $result = queryWhoisServer($server, $domain);
 
             $isRegistered = isDomainRegistered($result);
-
+            // 追踪是否已输出注册商信息
+            $hasRegistrarInfo = false;
             echo '<div class="result">';
             if (!empty($result)) {
                 echo '<h2>' . $domain . ' WHOIS Information</h2>';
                 echo '<div class="info-container">';
                 echo '<p>Searched from: ' . $server . '</p>';
-                echo '<p>Reserved domain name: ' . (isDomainReserved($result) ? 'Reserved' : 'Not Reserved') . '&nbsp;(Only Reference)' . '</p>';
                 echo '<p>Domain Registration: ' . ($isRegistered ? 'Registered' : 'Unregistered') . '</p>';
-                echo '</div>';
+                echo '<p>Reserved domain name: ' . (isDomainReserved($result) ? 'Reserved' : 'Not Reserved') . '&nbsp;(Only Reference)' . '</p>';
 
+                // 获取并输出主要信息
+                foreach ($result as $line) {
+                    // 判断是否包含到期日期信息
+                    if (strpos($line, 'Expiration Date') !== false || strpos($line, 'Registrar Registration Expiration Date') !== false || strpos($line, 'Registry Expiry Date') !== false || strpos($line, 'Expiry Date:') !== false || strpos($line, 'Expiration Time:') !== false) {
+                        // 输出到期日期
+                        echo '<p>Expiration Date: ' . trim(str_replace(['Expiration Date:', 'Registrar Registration Expiration Date:', 'Registry Expiry Date:', 'Expiry Date:', 'Expiration Time:'], '', $line)) . '</p>';
+                    }
+                    // 判断是否包含注册日期信息
+                    elseif (strpos($line, 'Creation Date') !== false || strpos($line, 'Domain Registration Date') !== false || strpos($line, 'created:') !== false || strpos($line, 'Registration Time:') !== false) {
+                        // 输出注册日期
+                        echo '<p>Registration Date: ' . trim(str_replace(['Creation Date:', 'Domain Registration Date:', 'created:', 'Registration Time:'], '', $line)) . '</p>';
+                    }
+                    // 判断是否包含更新日期信息
+                    elseif (strpos($line, 'Updated Date') !== false || strpos($line, 'Last Updated') !== false || strpos($line, 'last-update:') !== false) {
+                        // 输出更新日期
+                        echo '<p>Last Updated Date: ' . trim(str_replace(['Updated Date:', 'Last Updated:', 'last-update:'], '', $line)) . '</p>';
+                    }
+                    // 判断是否包含 NS 服务器信息
+                    elseif (strpos($line, 'Name Server') !== false || strpos($line, 'Name Servers') !== false || strpos($line, 'NS') !== false || strpos($line, 'nserver:') !== false) {
+                        // 输出 NS 服务器信息
+                        echo '<p>DNS: ' . trim(str_replace(['Name Server:', 'Name Servers:', 'NS:', 'nserver:'], '', $line)) . '</p>';
+                    }
+
+                    // 判断是否包含注册人信息
+                    elseif (strpos($line, 'Registrant:') !== false || strpos($line, 'Registrant Name:') !== false || strpos($line, 'Registrant Organization:') !== false) {
+                        // 输出注册人信息
+                        echo '<p>Registrant: ' . trim(str_replace(['Registrant:', 'Registrant Name:', 'Registrant Organization:'], '', $line)) . '</p>';
+                    }
+                    // 判断是否包含注册人邮箱
+                    elseif (strpos($line, 'Registrant Email') !== false) {
+                        // 输出注册人邮箱
+                        echo '<p>Registrant Email: ' . trim(str_replace('Registrant Email:', '', $line)) . '</p>';
+                    }
+
+                    // 判断是否包含注册商信息
+                    elseif (!$hasRegistrarInfo && (strpos($line, 'Registrar:') !== false || strpos($line, 'Registrar WHOIS Server') !== false || strpos($line, 'registrar:') !== false)) {
+                        // 输出注册商信息
+                        echo '<p>Registrar: ' . trim(str_replace(['Registrar:', 'Registrar WHOIS Server:', 'registrar:'], '', $line)) . '</p>';
+
+                        // 将 $hasRegistrarInfo 设置为 true，确保只输出一次注册商信息
+                        $hasRegistrarInfo = true;
+                    }
+                    // 判断是否包含域名状态信息
+                    elseif (strpos($line, 'Status:') !== false) {
+                        // 输出域名状态信息
+                        echo '<p>Status: ' . trim(str_replace('Status:', '', $line)) . '</p>';
+                    }
+                }
+
+
+                echo '</div>';
                 echo '<h3 class="details-toggle" onclick="toggleDetails()">Show Details</h3>';
                 echo '<div class="details-content" id="details-content">';
+                echo '<div class="info-container">';
                 echo '<ul>';
                 foreach ($result as $line) {
                     echo '<li>' . $line . '</li>';
                 }
                 echo '</ul>';
                 echo '</div>';
+                echo '</div>';
             } else {
-                echo '<h2>Unable to find WHOIS information for the domain name. The domain name may not be registered or the server is not accessible.</h2>';
+                echo '<h3>WHOIS information for the domain name could not be found. The domain name may not be registered or the domain Whois server is not accessible.</h3>';
             }
             echo '</div>';
         } else {
             echo '<div class="result">';
-            echo '<h2>WHOIS search for this domain name is not supported.</h2>';
+            echo '<h3>WHOIS search for this domain name is not supported.</h3>';
             echo '</div>';
         }
     }
 
     // 执行 IP WHOIS 查询
-    function performIPWhoisQuery($ip) {
+    function performIPWhoisQuery($ip)
+    {
         $server = 'whois.apnic.net';
         $result = queryWhoisServer($server, $ip);
 
@@ -118,44 +173,17 @@
         echo '</div>';
     }
 
-    // 执行 NS 查询
-    function performNSQuery($domain) {
-        $result = getNSRecords($domain);
-
-        echo '<div class="result">';
-        if (!empty($result)) {
-            echo '<h2>' . $domain . ' NS information</h2>';
-            echo '<ul>';
-            foreach ($result as $record) {
-                echo '<li>' . $record . '</li>';
-            }
-            echo '</ul>';
-        } else {
-            echo '<h2>NS information not available: The domain name may not be registered or the server may not be searched.</h2>';
-        }
-        echo '</div>';
-    }
-
-    function getNSRecords($domain) {
-        $result = array();
-        $output = @dns_get_record($domain, DNS_NS);
-        if (!empty($output)) {
-            foreach ($output as $record) {
-                $result[] = $record['target'];
-            }
-        }
-        return $result;
-    }
-
     // 获取域名后缀
-    function getDomainExtension($domain) {
+    function getDomainExtension($domain)
+    {
         $parts = explode('.', $domain);
         $extension = end($parts);
         return strtolower($extension);
     }
 
     // 查询 WHOIS 服务器
-    function queryWhoisServer($server, $query) {
+    function queryWhoisServer($server, $query)
+    {
         $result = array();
         $fp = @fsockopen($server, 43, $errno, $errstr, 10);
         if ($fp) {
@@ -169,7 +197,8 @@
     }
 
     // 判断域名是否保留
-    function isDomainReserved($whoisResult) {
+    function isDomainReserved($whoisResult)
+    {
         $reservedKeywords = array('reserved', '保留域名', 'reserved domain name', '保留', 'keep', 'clientHold', 'serverHold');
 
         foreach ($whoisResult as $line) {
@@ -184,12 +213,16 @@
     }
 
     // 判断域名是否已注册
-    function isDomainRegistered($whoisResult) {
+    function isDomainRegistered($whoisResult)
+    {
         $registeredPatterns = array(
             '/^\s*Registrar:\s+/i',
             '/^\s*Creation Date:\s+/i',
             '/^\s*Domain Name:\s+/i',
-            '/^\s*Registry Domain ID:\s+/i'
+            '/^\s*Registry Domain ID:\s+/i',
+            '/^\s*connect\s+/i',
+            '/^\s*Status:\s+connect/i',
+            '/^\s*Status:\s+active/i'
         );
 
         foreach ($whoisResult as $line) {
@@ -202,11 +235,10 @@
 
         return false;
     }
-
     ?>
 </body>
 <footer>
-    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.0.8 </p>
+    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.0.9 </p>
 </footer>
 <script>
     function toggleDetails() {
@@ -222,4 +254,5 @@
         }
     }
 </script>
+
 </html>
