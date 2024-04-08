@@ -1181,7 +1181,6 @@ $whoisServers = array(
 "protection"=>"whois.nic.protection",
 "pt"=>"whois.dns.pt",
 "pub"=>"whois.nic.pub",
-"pub"=>"whois.unitedtld.com",
 "pw"=>"whois.nic.pw",
 "pwc"=>"whois.afilias-srs.net",
 "qa"=>"whois.registry.qa",
@@ -1861,5 +1860,5 @@ $whoisServers = array(
 "org.ge" => "whois.registration.ge",
 "pvt.ge" => "whois.registration.ge",
 );
-//2023-12-15
+//2024-02-29
 ?>

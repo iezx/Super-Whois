@@ -6,21 +6,21 @@
     <title>Super Whois</title>
     <link rel="stylesheet" type="text/css" href="style.css">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="description" content="Welcome to Domain Name, IP WHOIS Search. You can check domain whois and ipv4 ipv6 whois." />
+    <meta name="description" content="Welcome to Domain Name, IP&ASN WHOIS Search. You can check domain whois and ipv4 ipv6 whois." />
     <link rel="shortcut icon" href="https://cdn.807070.xyz/img/new/2023/01/14/63c2a68d3bb10.png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 
 <body>
-    <h1>Domain Name, IP WHOIS Search System</h1>
+    <h1>Domain Name, IP&ASN WHOIS Search System</h1>
     <form method="post" action="">
         <input type="text" name="query" placeholder="Please enter and press Enquiry." required value="<?php echo isset($_POST['query']) ? htmlspecialchars(removeSpaces($_POST['query']), ENT_QUOTES, 'UTF-8') : ''; ?>">
         <select name="type">
             <?php
             $options = [
                 'whois' => 'Domain WHOIS Search',
-                'ipwhois' => 'IP WHOIS Search',
+                'ipwhois' => 'IP&ASN WHOIS Search',
             ];
 
             foreach ($options as $value => $label) {
@@ -33,7 +33,7 @@
     </form>
 
     <?php
-    // v1.0.9 1.优化CSS 2.更新和优化代码 3.NS查询功能整合
+    // v1.1.0 1.优化CSS 2.更新和优化代码 2.1.优化判断域名是否已注册 2.2.执行 WHOIS 查询部分代码 3.添加支持ASN查询
 
     // error_reporting(0); // 禁用错误报告代码 
 
@@ -70,6 +70,7 @@
             $result = queryWhoisServer($server, $domain);
 
             $isRegistered = isDomainRegistered($result);
+            $currentDate = date('Y-m-d'); // 获取当前日期
             // 追踪是否已输出注册商信息
             $hasRegistrarInfo = false;
             echo '<div class="result">';
@@ -79,6 +80,7 @@
                 echo '<p>Searched from: ' . $server . '</p>';
                 echo '<p>Domain Registration: ' . ($isRegistered ? 'Registered' : 'Unregistered') . '</p>';
                 echo '<p>Reserved domain name: ' . (isDomainReserved($result) ? 'Reserved' : 'Not Reserved') . '&nbsp;(Only Reference)' . '</p>';
+                echo '<p>Current Date: ' . $currentDate . '</p>';
 
                 // 获取并输出主要信息
                 foreach ($result as $line) {
@@ -152,10 +154,11 @@
         }
     }
 
-    // 执行 IP WHOIS 查询
+    // 执行 IP AS WHOIS 查询
     function performIPWhoisQuery($ip)
     {
         $server = 'whois.apnic.net';
+        $server = 'WHOIS.ARIN.NET';
         $result = queryWhoisServer($server, $ip);
 
         echo '<div class="result">';
@@ -215,30 +218,36 @@
     // 判断域名是否已注册
     function isDomainRegistered($whoisResult)
     {
-        $registeredPatterns = array(
-            '/^\s*Registrar:\s+/i',
-            '/^\s*Creation Date:\s+/i',
-            '/^\s*Domain Name:\s+/i',
-            '/^\s*Registry Domain ID:\s+/i',
-            '/^\s*connect\s+/i',
-            '/^\s*Status:\s+connect/i',
-            '/^\s*Status:\s+active/i'
+        $registeredKeywords = array(
+            'Registrar:',
+            'Creation Date:',
+            'Domain Name:',
+            'Registry Domain ID:',
+            'connect',
+            'Status: connect',
+            'Status: active',
         );
 
+        $hasNSInfo = false;
+
         foreach ($whoisResult as $line) {
-            foreach ($registeredPatterns as $pattern) {
-                if (preg_match($pattern, $line)) {
+            foreach ($registeredKeywords as $keyword) {
+                if (stripos($line, $keyword) !== false) {
                     return true;
                 }
             }
+
+            if (preg_match('/^\s*Name\s+Server:/i', $line) || preg_match('/^\s*Name\s+Servers:/i', $line) || preg_match('/^\s*NS:/i', $line) || preg_match('/^\s*nserver:\s+/i', $line)) {
+                $hasNSInfo = true;
+            }
         }
 
-        return false;
+        return $hasNSInfo;
     }
     ?>
 </body>
 <footer>
-    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.0.9 </p>
+    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.1.0 </p>        
 </footer>
 <script>
     function toggleDetails() {
@@ -254,5 +263,4 @@
         }
     }
 </script>
-
 </html>
