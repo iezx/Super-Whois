@@ -311,7 +311,7 @@
     ?>
 </body>
 <footer>
-    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a>Version 1.1.1</p>
+    <p><a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.1.1 </p>
 </footer>
 <script>
     function toggleDetails() {
