@@ -75,6 +75,17 @@ a {
     text-decoration: none; /* 链接颜色 */
 } 
 
+.illustrate {
+    width: 80%; /* 调整宽度 */
+    max-width: 600px; /* 设置最大宽度*/
+    padding: 20px;
+    background-color: #f4f4f4;
+    border-radius: 10px;
+    border: 2px solid #ccc;
+    margin: 20px auto; /* 居中显示 */
+    text-align: center; /* 文字居中 */
+}
+
 /* 适配电脑用户 */
 
 @media screen and (min-width: 768px) {
