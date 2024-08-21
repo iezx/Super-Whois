@@ -1,16 +1,19 @@
-/* 通用适配 */
-
-body {
+* {
     font-family: Arial, sans-serif;
-    margin: 20px;
-    background-repeat:no-repeat;
-	background-attachment:fixed;
-	background-position:center top;
-	background: linear-gradient( 90deg, rgba(247, 149, 51, .1), rgba(243, 112, 85, .1) 15%, rgba(239, 78, 123, .1) 30%, rgba(161, 102, 171, .1) 44%, rgba(80, 115, 184, .1) 58%, rgba(16, 152, 173, .1) 72%, rgba(7, 179, 155, .1) 86%, rgba(109, 186, 130, .1));
 }
 
-h1 {
+header {
+    background-color: white;
+    padding: 5px;
     text-align: center;
+}
+
+body {
+    background-color: #f0f0f0;
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
 }
 
 form {
@@ -23,21 +26,14 @@ select {
     padding: 10px;
     font-size: 16px;
     border: 1px solid #ccc;
-}
-
-.result h2 {
-    text-transform: uppercase;
-    text-align: center;
-    margin-bottom: 10px;
-}
-
-.result p {
-    text-align: center;
+    border-radius: 5px;
+    box-sizing: border-box;
+    margin-right: 10px;
 }
 
 .details-toggle {
     cursor: pointer;
-    text-decoration: none; 
+    text-decoration: none;
     color: #007bff;
     margin-bottom: 10px;
 }
@@ -47,14 +43,16 @@ select {
 }
 
 .details-toggle::after {
-    font-family: 'Font Awesome 5 Free'; /* 指定 Font Awesome 字体 */
-    content: "\f107"; /* 表示尖头向下 */
+    font-family: 'Font Awesome 5 Free';
+    content: "\f107";
+    /* 表示尖头向下 */
     display: inline-block;
     margin-left: 5px;
 }
 
 .details-toggle.open::after {
-    content: "\f106"; /* 表示尖头向上 */
+    content: "\f106";
+    /* 表示尖头向上 */
 }
 
 ul {
@@ -62,50 +60,50 @@ ul {
     padding: 0;
 }
 
+.result h2 {
+    text-transform: uppercase;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
 ul li {
     margin-bottom: 5px;
 }
 
-footer {
-    text-align: center;
-}
-
 a {
     color: #20a53a;
-    text-decoration: none; /* 链接颜色 */
-} 
+    text-decoration: none;
+    /* 链接颜色 */
+}
 
 .illustrate {
-    width: 80%; /* 调整宽度 */
-    max-width: 600px; /* 设置最大宽度*/
+    width: 80%;
+    max-width: 600px;
     padding: 20px;
-    background-color: #f4f4f4;
     border-radius: 10px;
-    border: 2px solid #ccc;
-    margin: 20px auto; /* 居中显示 */
-    text-align: center; /* 文字居中 */
+    margin: 20px auto;
+    /* 居中显示 */
+}
+
+footer {
+    background-color: white;
+    padding: 5px;
+    text-align: center;
+    margin-top: auto;
 }
 
 /* 适配电脑用户 */
-
 @media screen and (min-width: 768px) {
+
     input[type="text"],
     select {
         border-radius: 30px;
-        width: 16%; /* 搜索栏 */
-        box-sizing: border-box; /* 包含内边距和边框在内的总宽度 */
-    }
-
-    input[type="submit"] {
-        border-radius: 30px;
-        padding: 15px;
-        font-size: 16px;
-        background-color: #007bff;
-        color: white; /* 提交栏 */
-        border: none;
-        cursor: pointer;
-        width: 6%;
+        width: 30%;
+        /* 搜索栏 */
+        box-sizing: border-box;
+        /* 包含内边距和边框在内的总宽度 */
         margin-top: 10px;
+        /*留出空间*/
     }
 
     .result {
@@ -115,31 +113,79 @@ a {
         justify-content: center;
         align-items: center;
         flex-direction: column;
-        max-width: 600px;  
+        max-width: 600px;
         margin-left: auto;
         margin-right: auto;
     }
 
-    .result .info-container {
-        box-sizing: border-box;
-        background-image: linear-gradient(to top, #cfd9df 0%, #e2ebf0 100%);
-        padding: 10px; /* 适当的内边距 */
-        margin: 15px 0 5px 0; /* 适当的外边距 */
-        border-radius: 15px; /* 使用椭圆形状的边角 */
+    .header-icon {
+        display: none;
+    }
+
+    .submit-button:hover {
+        background-color: #0056b3;
+        /* 悬停变化 */
+    }
+
+    .submit-button i {
+        margin-right: 5px;
+        /* 图标和文本之间的间距 */
+    }
+
+    /* 提交按钮样式 */
+    .submit-button {
+        color: black;
+        border: none;
+        padding: 12px 20px;
+        /* 调整内边距 */
+        border-radius: 25px;
+        /* 圆角 */
+        cursor: pointer;
+        /* 悬停显示 */
+        font-size: 20px;
+        transition: background-color 0.3s ease;
+        /* 过渡效果 */
+        margin-top: 3px;
+        /* 与上方元素的间隔 */
     }
 }
 
 /* 适配手机用户 */
-
 @media screen and (max-width: 767px) {
-    input[type="text"],
-    select {
-        border-radius: 30px;
-        width: 100%; /* 搜索栏 */
-        box-sizing: border-box; /* 包含内边距和边框在内的总宽度 */
+
+    form {
+        display: flex;
+        flex-direction: column;
+        /* 垂直排列 */
+        align-items: center;
+        /* 水平居中 */
     }
 
-    input[type="submit"] {
+    input[type="text"] {
+        border-radius: 30px;
+        width: 100%;
+        box-sizing: border-box;
+        /* 包含内边距和边框在内的总宽度 */
+        margin-bottom: 10px;
+    }
+
+    select {
+        border-radius: 35px;
+        width: 100%;
+        box-sizing: border-box;
+        /* 包含内边距和边框在内的总宽度 */
+        margin-bottom: 10px;
+        /* 下方元素的间隔 */
+    }
+
+    .form-group {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+    }
+
+    .submit-button {
         border-radius: 30px;
         padding: 10px 20px;
         font-size: 16px;
@@ -147,8 +193,10 @@ a {
         color: white;
         border: none;
         cursor: pointer;
-        width: 100%; /* 提交栏 */
-        margin-top: 10px;
+        width: 96%;
+        /* 宽度占满容器 */
+        margin-top: 3px;
+        /* 与上方元素的间隔 */
     }
 
     .result {
@@ -158,8 +206,20 @@ a {
         justify-content: center;
         align-items: center;
         flex-direction: column;
-        max-width: 600px; 
+        max-width: 600px;
         margin-left: auto;
         margin-right: auto;
+    }
+
+    .header-icon {
+        position: absolute;
+        top: 6px;
+        left: 12px;
+        width: 30px;
+        height: 30px;
+    }
+
+    h2 {
+        font-size: 13.2px;
     }
 }
