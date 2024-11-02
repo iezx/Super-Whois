@@ -1264,7 +1264,6 @@ $whoisServers = array(
 "safety"=>"whois.nic.safety",
 "sakura"=>"whois.nic.sakura",
 "sale"=>"whois.nic.sale",
-"sale"=>"whois.rightside.co",
 "salon"=>"whois.donuts.co",
 "salon"=>"whois.nic.salon",
 "samsclub"=>"whois.nic.samsclub",
@@ -1860,5 +1859,5 @@ $whoisServers = array(
 "org.ge" => "whois.registration.ge",
 "pvt.ge" => "whois.registration.ge",
 );
-//2024-02-29
+//2024-11-02
 ?>
