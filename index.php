@@ -16,13 +16,16 @@
 <body>
     <header>
         <h2>Domain Name, IP&ASN WHOIS Search System</h2>
-        <img src="https://cdn.807070.xyz/img/new/2023/01/14/63c2a68d3bb10.png" alt="Icon" class="header-icon">
     </header>
     <main>
+        <div class="illustrate">
+            <p> <strong>说明：</strong> 本系统支持域名、IP、ASN的Whois信息查询。请在搜索框中输入，点击搜索按钮即可查询相关信息。</p>
+            <p> <strong>Instruction:</strong> You can use this tool to find domain name information, IP address, and ASN information. Simply enter the domain name, IP address, or ASN in the input box.</>
+        </div>
         <div class="form-container">
             <form method="post" action="">
                 <div class="form-group">
-                    <input type="text" name="query" placeholder="Enter the domain name, IP or ASN to search" required
+                    <input type="text" name="query" placeholder="Enter information" required
                         value="<?php echo isset($_POST['query']) ? htmlspecialchars(removeSpaces($_POST['query']), ENT_QUOTES, 'UTF-8') : ''; ?>">
                 </div>
                 <button type="submit" name="submit" class="submit-button">
@@ -31,37 +34,39 @@
             </form>
 
             <?php
-        // v1.1.1AX 优化CSS和代码
+            // v1.1.2  1.全面优化CSS样式 2.新增查询记录
 
-        // 去除输入域名中的所有空格
-        function removeSpaces($input) {
-            return preg_replace('/\s+/', '', $input);
-        }
-        
-        function getDomainExtension($domain) {
-            // 确保是ASCII 形式
-            $domainAscii = idn_to_ascii($domain);
-            $parts = explode('.', $domainAscii);
-            return strtolower(end($parts));
-        }
+            // 去除输入域名中的所有空格
+            function removeSpaces($input)
+            {
+                return preg_replace('/\s+/', '', $input);
+            }
 
-        if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit'])) {
-            $query = removeSpaces($_POST['query']);
-            $query = idn_to_ascii($query);
+            function getDomainExtension($domain)
+            {
+                // 确保是ASCII 形式
+                $domainAscii = idn_to_ascii($domain);
+                $parts = explode('.', $domainAscii);
+                return strtolower(end($parts));
+            }
 
-          /*//调试信息
+            if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit'])) {
+                $query = removeSpaces($_POST['query']);
+                $query = idn_to_ascii($query);
+
+                /*//调试信息
             echo '<div class="result"><p>Processed Query: ' . htmlspecialchars($query, ENT_QUOTES, 'UTF-8') . '</p></div>'; */
 
-            if (filter_var($query, FILTER_VALIDATE_IP)) {
-                performIPWhoisQuery($query);
-            } elseif (preg_match('/^AS\d+$/i', $query)) {
-                performASNWhoisQuery($query);
-            } elseif (preg_match('/^[a-z0-9.-]+\.[a-z]{2,}|^xn--[a-z0-9]+\.xn--[a-z0-9]+$/i', $query)) {
-                performWhoisQuery($query);
-            } else {
-                echo '<div class="result"><h3>Invalid query. Please enter a valid domain, IP, or ASN.</h3></div>';
+                if (filter_var($query, FILTER_VALIDATE_IP)) {
+                    performIPWhoisQuery($query);
+                } elseif (preg_match('/^AS\d+$/i', $query)) {
+                    performASNWhoisQuery($query);
+                } elseif (preg_match('/^[a-z0-9.-]+\.[a-z]{2,}|^xn--[a-z0-9]+\.xn--[a-z0-9]+$/i', $query)) {
+                    performWhoisQuery($query);
+                } else {
+                    echo '<div class="result"><h3>Invalid query. Please enter a valid domain, IP, or ASN.</h3></div>';
+                }
             }
-        }
 
 
             // 执行 WHOIS 查询
@@ -75,9 +80,9 @@
                 if (isset($whoisServers[$extension])) {
                     $server = $whoisServers[$extension];
                     $result = queryWhoisServer($server, $domainAscii);
-                    // Protect server IP information
+                    // Protect server IP information 保护服务器IP信息
                     $result = array_map(function ($line) {
-                        return str_replace('xx', 'Super Whois IP Privacy Function', $line);
+                        return str_replace('Enter your IP', 'Super Whois IP Privacy Function', $line);
                     }, $result);
 
                     $isRegistered = isDomainRegistered($result);
@@ -110,11 +115,48 @@
                             'Registration Time:' => 'Registration Date',
                             'Updated Date on' => 'Last Updated Date',
                             'Updated Date' => 'Last Updated Date',
+                            'last-update'  => 'Last Updated Date',
                             'Record last updated on' => 'Last Updated Date',
                             'Last Updated' => 'Last Updated Date',
                             'modified' => 'Last Updated Date',
                             'Name Server' => 'DNS',
                             'Name Servers' => 'DNS',
+                            'Domain nameservers' => 'DNS',
+                            'NS:' => 'DNS',
+                            'Name Servers Information:' => 'DNS',
+                            'nserver' => 'DNS',
+                            'DNSSEC' => 'DNSSEC',
+                            'Registrant:' => 'Registrant',
+                            'Registrant Name:' => 'Registrant',
+                            'Registrant Organization:' => 'Registrant',
+                            'Registrant Email' => 'Registrant Email',
+                            'Registrant Contact Email' => 'Registrant Email',
+                            'Given Name:' => 'Given Name',
+                            'Family Name' => 'Family Name',
+                            'Registrar WHOIS Server' => 'Registrar',
+                            'registrar:' => 'Registrar',
+                            'Registrar Name' => 'Registrar',
+                            'Sponsoring Registrar' => 'Registrar',
+                            'Status' => 'Domain Status',
+                            'Status Information' => 'Status Information',
+                            'Domain Status' => 'Domain Status',
+                            'DNSSEC:' => 'DNSSEC',
+                            'Bundled Domain Name' => 'Bundled Domain Name',
+                            'Country' => 'Country/Region',
+                            'Region' => 'Country/Region',
+                            'Address' => 'Address',
+                            // 日文关键词
+                            '[登録者]' => 'Registrant',
+                            '[登録年月日]' => 'Registration Date',
+                            '[有効期限]' => 'Expiration Date',
+                            '[最終更新]' => 'Last Updated Date',
+                            '[ネームサーバー]' => 'DNS',
+                            '[登録担当者]' => 'Registrant Contact',
+                            '[組織名]' => 'Registrant Organization',
+                            '[都道府県]' => 'Prefecture',
+                            '[国]' => 'Country/Region',
+                            '[状態]' => 'Domain Status',
+                            'Domain nameservers' => 'DNS',
                             'NS:' => 'DNS',
                             'Name Servers Information:' => 'DNS',
                             'nserver' => 'DNS',
@@ -140,10 +182,54 @@
                             'Address' => 'Address',
                         ];
 
+                        $dnsRecords = [];
+                        $collectingDns = false;
                         foreach ($result as $line) {
+                            $trimmedLine = trim($line);
+                            // 检查是否为DNS相关字段的起始行
+                            $dnsStart = false;
+                            foreach (
+                                [
+                                    'Name Server',
+                                    'Name Servers',
+                                    'Domain nameservers',
+                                    'NS:',
+                                    'Name Servers Information:',
+                                    'nserver',
+                                    '[ネームサーバー]'
+                                ] as $dnsKey
+                            ) {
+                                if (preg_match('/^\s*' . preg_quote($dnsKey, '/') . '\s*:?(.*)$/i', $line, $matches)) {
+                                    $dnsStart = true;
+                                    $value = trim($matches[1]);
+                                    if ($value !== '') {
+                                        if (!in_array($value, $dnsRecords)) {
+                                            $dnsRecords[] = $value;
+                                        }
+                                    }
+                                    $collectingDns = true;
+                                    break;
+                                }
+                            }
+                            if ($dnsStart) {
+                                continue;
+                            }
+                            // 如果正在收集DNS且当前行非空且不是其他字段，则继续收集
+                            if ($collectingDns && $trimmedLine !== '' && !preg_match('/^[A-Za-z0-9\[\] _\-]+:/', $trimmedLine)) {
+                                if (!in_array($trimmedLine, $dnsRecords)) {
+                                    $dnsRecords[] = $trimmedLine;
+                                }
+                                continue;
+                            } else {
+                                $collectingDns = false;
+                            }
                             foreach ($whoisDetails as $keyword => $infoType) {
                                 if (preg_match('/^\s*' . preg_quote($keyword, '/') . '\s*(.*)$/i', $line, $matches)) {
                                     $value = trim($matches[1]);
+                                    if ($infoType === 'DNS') {
+                                        // 已由上方逻辑处理
+                                        break;
+                                    }
                                     if (!isset($outputtedInfo[$infoType])) {
                                         $outputtedInfo[$infoType] = [];
                                     }
@@ -155,7 +241,10 @@
                                 }
                             }
                         }
-
+                        // 在此处输出一次所有收集到的DNS记录
+                        if (!empty($dnsRecords)) {
+                            echo '<p>DNS: ' . implode('<br>', array_map('ltrim', $dnsRecords)) . '</p>';
+                        }
                         echo '</div>';
                         echo '<h3 class="details-toggle" onclick="toggleDetails()">Show Details</h3>';
                         echo '<div class="details-content" id="details-content">';
@@ -245,9 +334,9 @@
             {
                 foreach ($result as $line) {
                     if (
-                        stripos($line, 'Domain Status:') !== false || 
-                        stripos($line, 'Registrar:') !== false || 
-                        stripos($line, 'Creation Date:') !== false||
+                        stripos($line, 'Domain Status:') !== false ||
+                        stripos($line, 'Registrar:') !== false ||
+                        stripos($line, 'Creation Date:') !== false ||
                         stripos($line, 'Active') !== false
                     ) {
                         return true;
@@ -266,23 +355,34 @@
                 }
                 return false;
             }
-            
+
             ?>
+            <div class="history-container">
+                <h3>查询记录 Records</h3>
+                <p>历史记录存储在本地，最多20条记录。</p>
+                <p>History stored locally, up to 20 records.</p>
+                <button class="h_clear"onclick="clearHistory()"><p>清除记录 Clear Records</p></button>
+                <br>
+                <ul id="history-list"></ul>
+            </div>
+
+            <script>
+                function clearHistory() {
+                    localStorage.removeItem(historyKey);
+                    loadHistory();
+                }
+            </script>
             <div class="illustrate" id="englishGuide">
 
                 <h4><a href="#" onclick="toggleLanguage('chinese')">中文说明</a></h4>
                 <h3>Welcome to the Domain Name, IP&amp;ASN WHOIS Search System!</h3>
-                <p>You can use this tool to query domain name information, IP addresses, and ASN information. Simply
-                    enter the domain name, IP address, or ASN number in the input field above and select the appropriate
-                    search type (Domain WHOIS Search or IP&amp;ASN WHOIS Search).</p>
+                <p>You can use this tool to find domain name information, IP address, and ASN information. Simply enter the domain name, IP address, or ASN in the input box.</p>
 
                 <h2>How to Use:</h2>
                 <ol>
-                    <li>Enter the domain name, IP address, or ASN number in the input field.</li>
-                    <li>Select the appropriate search type (Domain or IP&amp;ASN WHOIS Search).</li>
-                    <li>Click the "Enquiry" button to get the results.</li>
-                    <li>After submitting your query, you will see detailed WHOIS information for the specified domain
-                        name, IP address, or ASN number.</li>
+                    <li>Enter the domain name, IP address or ASN to be queried in the input box.</li>
+                    <li>Click the submit button or press enter to enquire and get the results.</li>
+                    <li>After submitting your query, you will see detailed WHOIS information for the domain name, IP address or ASN.</li>
                 </ol>
 
                 <h2>Results:</h2>
@@ -303,13 +403,12 @@
             <div class="illustrate" id="chineseGuide" style="display: none;">
                 <h4><a href="#" onclick="toggleLanguage('english')">English</a></h4>
                 <h3>欢迎使用域名、IP和ASN WHOIS查询系统！</h3>
-                <p>您可以使用此工具查询域名信息、IP地址和ASN信息。只需在上方的输入框中输入域名、IP地址或ASN号码，并选择适当的搜索类型（域名WHOIS搜索或IP&ASN WHOIS搜索）。</p>
+                <p>您可以使用此工具查询域名信息、IP地址和ASN信息。只需在上方的输入框中输入域名、IP地址或ASN。</p>
                 <h2>使用方法：</h2>
                 <ol>
-                    <li>在输入框中输入域名、IP地址或ASN号码。</li>
-                    <li>选择适当的搜索类型（域名或IP&ASN WHOIS搜索）。</li>
-                    <li>点击"查询"按钮以获取结果。</li>
-                    <li>提交查询后，您将看到指定域名、IP地址或ASN号码的详细WHOIS信息。</li>
+                    <li>在输入框中输入域名、IP地址或ASN。</li>
+                    <li>点击搜索框下的按钮以获取结果。</li>
+                    <li>提交查询后，您将看到域名、IP地址或ASN的详细WHOIS信息。</li>
                 </ol>
                 <h2>域名示例：</h2>
                 <p>域名（示例：example.com）</p>
@@ -324,9 +423,82 @@
             </div>
     </main>
     <footer>
-        <p>&copy; 2024 <a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.1.1AX
-        </p>
+        <p>&copy; 2023-2025 <a href="https://github.com/iezx/Super-Whois" target="_blank">Super Whois</a> Version 1.1.2</p>
     </footer>
+</body>
+<script>
+    function toggleLanguage(language) {
+        if (language === 'english') {
+            document.getElementById('englishGuide').style.display = 'block';
+            document.getElementById('chineseGuide').style.display = 'none';
+        } else if (language === 'chinese') {
+            document.getElementById('englishGuide').style.display = 'none';
+            document.getElementById('chineseGuide').style.display = 'block';
+        }
+    }
+</script>
+<script>
+    function toggleDetails() {
+        var detailsContent = document.getElementById('details-content');
+        var detailsToggle = document.querySelector('.details-toggle');
+
+        if (detailsContent.style.display === 'none') {
+            detailsContent.style.display = 'block';
+            detailsToggle.classList.add('open');
+        } else {
+            detailsContent.style.display = 'none';
+            detailsToggle.classList.remove('open');
+        }
+    }
+</script>
+
+</html>
+
+<script>
+    // 查询历史记录本地存储与渲染
+    const historyKey = 'superWhoisHistory';
+    const historyList = document.getElementById('history-list');
+    const queryInput = document.querySelector('input[name="query"]');
+
+    function loadHistory() {
+        let history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+        historyList.innerHTML = '';
+        if (history.length === 0) {
+            historyList.innerHTML = '<li style="color:#aaa;">暂无记录</li>';
+            return;
+        }
+        history.slice(-10).reverse().forEach(item => {
+            const li = document.createElement('li');
+            li.className = 'history-item';
+            li.textContent = item;
+            li.title = '点击填充到查询框';
+            li.onclick = () => {
+                queryInput.value = item;
+                queryInput.focus();
+            };
+            historyList.appendChild(li);
+        });
+    }
+
+    function saveHistory(query) {
+        let history = JSON.parse(localStorage.getItem(historyKey) || '[]');
+        query = query.trim();
+        if (!query) return;
+        history = history.filter(item => item !== query);
+        history.push(query);
+        if (history.length > 20) history = history.slice(-20);
+        localStorage.setItem(historyKey, JSON.stringify(history));
+    }
+
+    // 表单提交时保存历史
+    const form = document.querySelector('form');
+    form.addEventListener('submit', function(e) {
+        saveHistory(queryInput.value);
+    });
+
+    // 页面加载时渲染历史
+    window.addEventListener('DOMContentLoaded', loadHistory);
+</script>
 </body>
 <script>
     function toggleLanguage(language) {

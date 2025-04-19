@@ -1858,6 +1858,7 @@ $whoisServers = array(
 "net.ge" => "whois.registration.ge",
 "org.ge" => "whois.registration.ge",
 "pvt.ge" => "whois.registration.ge",
+"cv" => "whois.nic.cv",
 );
 //2024-11-02
 ?>
