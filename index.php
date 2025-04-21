@@ -34,7 +34,7 @@
             </form>
 
             <?php
-            // v1.1.2  1.全面优化CSS样式 2.新增查询记录
+            // v1.1.2 
 
             // 去除输入域名中的所有空格
             function removeSpaces($input)
@@ -361,7 +361,9 @@
                 <h3>查询记录 Records</h3>
                 <p>历史记录存储在本地，最多20条记录。</p>
                 <p>History stored locally, up to 20 records.</p>
-                <button class="h_clear"onclick="clearHistory()"><p>清除记录 Clear Records</p></button>
+                <button class="h_clear" onclick="clearHistory()">
+                    <p>清除记录 Clear Records</p>
+                </button>
                 <br>
                 <ul id="history-list"></ul>
             </div>
@@ -401,7 +403,7 @@
             </div>
 
             <div class="illustrate" id="chineseGuide" style="display: none;">
-                <h4><a href="#" onclick="toggleLanguage('english')">English</a></h4>
+                <h4><a href="#" onclick="toggleLanguage('english')">English Instruction</a></h4>
                 <h3>欢迎使用域名、IP和ASN WHOIS查询系统！</h3>
                 <p>您可以使用此工具查询域名信息、IP地址和ASN信息。只需在上方的输入框中输入域名、IP地址或ASN。</p>
                 <h2>使用方法：</h2>
@@ -451,9 +453,6 @@
         }
     }
 </script>
-
-</html>
-
 <script>
     // 查询历史记录本地存储与渲染
     const historyKey = 'superWhoisHistory';
@@ -471,7 +470,7 @@
             const li = document.createElement('li');
             li.className = 'history-item';
             li.textContent = item;
-            li.title = '点击填充到查询框';
+            li.title = '点击填充到查询框 Click to fill in the input box';
             li.onclick = () => {
                 queryInput.value = item;
                 queryInput.focus();
@@ -500,30 +499,5 @@
     window.addEventListener('DOMContentLoaded', loadHistory);
 </script>
 </body>
-<script>
-    function toggleLanguage(language) {
-        if (language === 'english') {
-            document.getElementById('englishGuide').style.display = 'block';
-            document.getElementById('chineseGuide').style.display = 'none';
-        } else if (language === 'chinese') {
-            document.getElementById('englishGuide').style.display = 'none';
-            document.getElementById('chineseGuide').style.display = 'block';
-        }
-    }
-</script>
-<script>
-    function toggleDetails() {
-        var detailsContent = document.getElementById('details-content');
-        var detailsToggle = document.querySelector('.details-toggle');
-
-        if (detailsContent.style.display === 'none') {
-            detailsContent.style.display = 'block';
-            detailsToggle.classList.add('open');
-        } else {
-            detailsContent.style.display = 'none';
-            detailsToggle.classList.remove('open');
-        }
-    }
-</script>
 
 </html>
