@@ -8,8 +8,6 @@
 3. 查询结果将会显示。
 # 注意事项：
 使用前需要安装 php intl 扩展
-## 查询系统外观  
-[![Super Whois Appearance](https://cdn.807070.xyz/img/new/2025/08/30/cKqYMuIoMg.png)](https://cdn.807070.xyz/img/new/2025/08/30/cKqYMuIoMg.png)
     
 # Super Whois
 Domain Name, IP&ASN WHOIS Search System  
@@ -23,8 +21,6 @@ Support IDN domain name
 
 # Please Note:
 Please install the php intl extension before using this program.  
-## Super Whois Appearance  
-[![Super Whois Appearance](https://cdn.807070.xyz/img/new/2025/08/30/cKqYMuIoMg.png)](https://cdn.807070.xyz/img/new/2025/08/30/cKqYMuIoMg.png)
 
 
 
