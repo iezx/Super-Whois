@@ -1,25 +1,28 @@
 <?php
 /**
- * api.php — Super Whois v2.2.1
+ * api.php — Super Whois API v2.2.2
  * Uses whois_core.php for all shared logic.
  */
-define('RATE_LIMIT',  60);
-define('RATE_WINDOW', 3600);
-define('RATE_STORE',  __DIR__ . '/rate_store');
-define('TRUST_PROXY', true);
-define('LOG_DIR',     __DIR__ . '/logs');
-define('LOG_KEEP_DAYS', 30);
-define('API_VERSION',               '2.1');
-define('API_MAX_QUERY_LENGTH',      253);
-define('API_ALLOW_UNAUTHENTICATED', true);
-define('API_KEYS_FILE',             __DIR__ . '/api_keys.php');
+require_once __DIR__ . '/config.php';
+if (!defined('API_VERSION')) define('API_VERSION', SUPER_WHOIS_API_VERSION);
+$apiRequestId = bin2hex(random_bytes(8));
 
 ini_set('pcre.backtrack_limit', '100000');
+ini_set('display_errors', '0');
 
 if (!function_exists('idn_to_ascii')) {
     http_response_code(500);
-    header('Content-Type: application/json');
-    echo json_encode(['error' => 'Server error: intl extension missing.', 'code' => 500]);
+    header('Content-Type: application/json; charset=UTF-8');
+    header('X-Request-ID: ' . $apiRequestId);
+    header('X-Super-Whois-Version: ' . API_VERSION);
+    echo json_encode([
+        'error' => 'Server error: intl extension missing.',
+        'error_code' => 'intl_extension_missing',
+        'code' => 500,
+        'request_id' => $apiRequestId,
+        'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+        'api_version' => API_VERSION,
+    ], JSON_UNESCAPED_SLASHES);
     exit();
 }
 
@@ -27,10 +30,23 @@ require_once __DIR__ . '/whois_core.php';
 require_once __DIR__ . '/languages.php';
 require_once __DIR__ . '/whois_servers.php';
 
+set_exception_handler(static function (Throwable $error) use ($apiRequestId): void {
+    appendLog('api_unhandled_error', ['request_id' => $apiRequestId, 'type' => get_class($error)]);
+    if (!headers_sent()) {
+        applyApiCorsHeaders();
+        header('Content-Type: application/json; charset=UTF-8');
+        header('X-Request-ID: ' . $apiRequestId);
+        header('X-Super-Whois-Version: ' . API_VERSION);
+    }
+    http_response_code(500);
+    echo json_encode(['error' => 'Internal server error.', 'error_code' => 'internal_error', 'code' => 500,
+        'request_id' => $apiRequestId, 'timestamp' => gmdate('Y-m-d\TH:i:s\Z')], JSON_UNESCAPED_SLASHES);
+});
+
 // ── Language ───────────────────────────────────────────────────────────────
 $supported_langs = ['en', 'zh-cn', 'zh-tw'];
 $lang = 'en';
-if (isset($_GET['lang'])) {
+if (isset($_GET['lang']) && is_string($_GET['lang'])) {
     $gl = strtolower(trim($_GET['lang']));
     if ($gl === 'zh') $gl = 'zh-cn';
     if (in_array($gl, $supported_langs, true)) {
@@ -45,105 +61,270 @@ if (isset($_GET['lang'])) {
 }
 $T = get_language_strings($lang);
 
-// ── Route: no query → render API docs ────────────────────────────────────
-if (!isset($_GET['q']) || trim($_GET['q']) === '') {
-    header('Content-Type: text/html; charset=UTF-8');
-    renderApiDocs($T, $lang);
+// ── Request parsing and protocol handling ─────────────────────────────────
+$method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+if ($method === 'OPTIONS') {
+    applyApiCorsHeaders();
+    header('Allow: GET, HEAD, POST, OPTIONS');
+    http_response_code(204);
     exit();
 }
+if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
+    header('Allow: GET, HEAD, POST, OPTIONS');
+    apiError(405, 'Method not allowed.', 'method_not_allowed');
+}
 
-// ── API response mode ─────────────────────────────────────────────────────
+$requestPayload = [];
+$requestQueries = null;
+if ($method === 'POST') {
+    $contentLength = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
+    if ($contentLength > API_MAX_BODY_BYTES) apiError(413, 'Request body is too large.', 'body_too_large');
+    $contentType = strtolower(trim(explode(';', (string)($_SERVER['CONTENT_TYPE'] ?? ''), 2)[0]));
+    if ($contentType === 'application/json') {
+        $rawBody = file_get_contents('php://input', false, null, 0, API_MAX_BODY_BYTES + 1);
+        if (!is_string($rawBody) || strlen($rawBody) > API_MAX_BODY_BYTES) apiError(413, 'Request body is too large.', 'body_too_large');
+        try {
+            $decoded = json_decode($rawBody, true, 32, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            apiError(400, 'Malformed JSON body.', 'invalid_json');
+        }
+        if (!is_array($decoded)) apiError(400, 'JSON body must be an object.', 'invalid_json');
+        $requestPayload = $decoded;
+    } else {
+        $requestPayload = $_POST;
+    }
+    $requestQueries = $requestPayload['queries'] ?? $requestPayload['q'] ?? null;
+} elseif (array_key_exists('q', $_GET)) {
+    if (!is_string($_GET['q'])) apiError(400, 'q must be a string.', 'invalid_query_type');
+    $requestQueries = $_GET['q'];
+}
+
+// A queryless GET remains the human-readable documentation route.
+if ($requestQueries === null || $requestQueries === '') {
+    if ($method === 'POST') apiError(400, 'Missing query. Provide q or queries.', 'missing_query');
+    header('Content-Type: text/html; charset=UTF-8');
+    if ($method !== 'HEAD') renderApiDocs($T, $lang);
+    exit();
+}
+if (!is_string($requestQueries) && !is_array($requestQueries)) {
+    apiError(400, 'q must be a string and queries must be an array of strings.', 'invalid_query_type');
+}
+
+applyApiCorsHeaders();
 header('Content-Type: application/json; charset=UTF-8');
-header('Access-Control-Allow-Origin: *');
 header('X-Content-Type-Options: nosniff');
 header('X-Robots-Tag: noindex');
 header('Cache-Control: no-store');
+header('X-Request-ID: ' . $apiRequestId);
+header('X-Super-Whois-Version: ' . API_VERSION);
 
-// ── Auth ──────────────────────────────────────────────────────────────────
-$providedKey     = isset($_GET['key']) ? trim($_GET['key']) : '';
-$isAuthenticated = false;
-if ($providedKey !== '' && file_exists(API_KEYS_FILE)) {
-    $apiKeys = [];
-    require API_KEYS_FILE;
-    if (in_array($providedKey, $apiKeys, true)) $isAuthenticated = true;
-}
+$credential = getProvidedApiKey();
+if ($credential['source'] === 'invalid') apiError(400, 'key must be a string.', 'invalid_query_type');
+$providedKey = $credential['key'];
+$isAuthenticated = validateApiKey($providedKey);
+if ($providedKey !== '' && !$isAuthenticated) apiError(401, 'Invalid API key.', 'invalid_api_key');
 if (!$isAuthenticated && !API_ALLOW_UNAUTHENTICATED) {
-    apiError(401, 'Unauthorized. A valid API key is required.');
+    apiError(401, 'Unauthorized. A valid API key is required.', 'authentication_required');
+}
+if ($credential['source'] === 'query') {
+    header('Warning: 299 SuperWhois "Query-string API keys are deprecated; use Authorization: Bearer or X-API-Key."');
 }
 
-// ── Rate limit (unauthenticated only) ─────────────────────────────────────
-$rlHeaders = [];
-if (!$isAuthenticated) {
-    $rlHeaders = enforceRateLimit('api');
-    foreach ($rlHeaders as $k => $v) header("$k: $v");
+if (is_string($requestQueries)) {
+    $queries = preg_split('/[,\r\n]+/', $requestQueries) ?: [];
+} else {
+    $queries = $requestQueries;
+}
+foreach ($queries as $query) {
+    if (!is_string($query)) apiError(400, 'Every query must be a string.', 'invalid_query_type');
+}
+$queries = array_values(array_filter(array_map('trim', $queries), static fn($query) => $query !== ''));
+if ($queries === []) apiError(400, 'Invalid or empty query.', 'invalid_query');
+
+$batchLimit = $isAuthenticated ? API_AUTH_MAX_BATCH : API_MAX_BATCH;
+if (count($queries) > $batchLimit) {
+    apiError(422, "Batch limit exceeded. Maximum: $batchLimit queries.", 'batch_limit_exceeded', ['max_queries' => $batchLimit]);
 }
 
-// ── Query ─────────────────────────────────────────────────────────────────
-$rawQ = trim(substr($_GET['q'], 0, 10000));
+$dnsValue = $requestPayload['dns'] ?? ($_GET['dns'] ?? false);
+$dnsFlag = $dnsValue === true || (is_string($dnsValue) && in_array(strtolower($dnsValue), ['1', 'true'], true));
+$rawDefault = count($queries) === 1;
+$rawValue = $requestPayload['raw'] ?? ($_GET['raw'] ?? $rawDefault);
+$includeRaw = !($rawValue === false || (is_string($rawValue) && in_array(strtolower($rawValue), ['0', 'false'], true)));
+$prettyValue = $requestPayload['pretty'] ?? ($_GET['pretty'] ?? false);
+$pretty = $prettyValue === true || (is_string($prettyValue) && in_array(strtolower($prettyValue), ['1', 'true'], true));
 
-// Batch mode: split by comma or newline
-$queries = preg_split('/[,\n]+/', $rawQ);
-$queries = array_filter(array_map('trim', $queries));
-$queries = array_values($queries);
+// Normalize once and execute each unique query once while preserving output order.
+$normalizedQueries = [];
+$uniqueWork = [];
+foreach ($queries as $position => $query) {
+    $normalized = sanitizeQuery($query);
+    $normalizedQueries[$position] = $normalized;
+    if ($normalized !== '' && !isset($uniqueWork[strtolower($normalized)])) {
+        $uniqueWork[strtolower($normalized)] = $normalized;
+    }
+}
+$workCost = count($uniqueWork);
+if ($dnsFlag) {
+    foreach ($uniqueWork as $query) if (classifyQuery($query) === 'domain') $workCost++;
+}
+$rateIdentifier = $isAuthenticated ? apiKeyRateIdentifier($providedKey) : null;
+$rateLimit = $isAuthenticated ? API_AUTH_RATE_LIMIT : API_RATE_LIMIT;
+$rateHeaders = enforceRateLimit('api', max(1, $workCost), $rateIdentifier, $rateLimit);
+foreach ($rateHeaders as $name => $value) header("$name: $value");
 
-if (empty($queries)) apiError(400, 'Invalid or empty query.');
-
-$dnsFlag = !empty($_GET['dns']) && $_GET['dns'] === 'true';
+$startedAt = microtime(true);
+$batchDeadlineAt = count($queries) > 1 ? $startedAt + (API_BATCH_DEADLINE_MS / 1000) : null;
+$workResults = [];
+foreach ($uniqueWork as $key => $query) {
+    if ($batchDeadlineAt !== null && microtime(true) >= $batchDeadlineAt) {
+        $result = deadlineApiQueryResult($query);
+    } else {
+        $result = dispatchApiQuery($query, $whoisServers, $includeRaw);
+    }
+    if ($dnsFlag && ($result['query_type'] ?? '') === 'domain' && ($result['status'] ?? '') !== 'error') {
+        $result['dns_records'] = lookupDNSRecords((string)$result['query']);
+    }
+    $workResults[$key] = finalizeApiResult($result, $includeRaw, $apiRequestId);
+}
 
 if (count($queries) === 1) {
-    // Single query — backward-compatible response (flat JSON)
-    $query = sanitizeQuery($queries[0]);
-    if ($query === '') apiError(400, 'Invalid or empty query.');
-
-    $result = dispatchApiQuery($query, $whoisServers);
-
-    if ($dnsFlag && $result['query_type'] === 'domain') {
-        $dnsQ = sanitizeQuery($result['query']);
-        if ($dnsQ !== '' && classifyQuery($dnsQ) === 'domain') {
-            $result['dns_records'] = lookupDNSRecords($dnsQ);
-        }
+    $query = $normalizedQueries[0] ?? '';
+    if ($query === '' || classifyQuery($query) === 'invalid') {
+        apiError(400, 'Invalid query. Supply a domain, IP address, or ASN.', 'invalid_query');
     }
-
-    echo json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-} else {
-    // Batch mode — array response
-    $results = [];
-    foreach ($queries as $q) {
-        $q = sanitizeQuery($q);
-        if ($q === '') {
-            $results[] = ['query' => $q, 'status' => 'error', 'error' => 'Invalid query.'];
-            continue;
-        }
-        $result = dispatchApiQuery($q, $whoisServers);
-        if ($dnsFlag && ($result['query_type'] ?? '') === 'domain') {
-            $dnsQ = sanitizeQuery($result['query']);
-            if ($dnsQ !== '' && classifyQuery($dnsQ) === 'domain') {
-                $result['dns_records'] = lookupDNSRecords($dnsQ);
-            }
-        }
-        $results[] = $result;
-    }
-
-    echo json_encode([
-        'batch'       => true,
-        'count'       => count($results),
-        'api_version' => API_VERSION,
-        'timestamp'   => gmdate('Y-m-d\TH:i:s\Z'),
-        'results'     => $results,
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $result = $workResults[strtolower($query)];
+    header('Server-Timing: lookup;dur=' . (int)round((microtime(true) - $startedAt) * 1000));
+    apiJsonResponse($result, 200, $pretty);
 }
-exit();
+
+$results = [];
+foreach ($normalizedQueries as $position => $query) {
+    if ($query === '' || classifyQuery($query) === 'invalid') {
+        $results[] = invalidApiQueryResult($queries[$position] ?? '', $apiRequestId);
+    } else {
+        $positionResult = $workResults[strtolower($query)];
+        $positionResult['query'] = $query;
+        $results[] = $positionResult;
+    }
+}
+$elapsed = (int)round((microtime(true) - $startedAt) * 1000);
+$failed = count(array_filter($results, static fn($result) => ($result['status'] ?? '') === 'error'));
+header('Server-Timing: batch;dur=' . $elapsed);
+apiJsonResponse([
+    'batch' => true,
+    'count' => count($results),
+    'succeeded' => count($results) - $failed,
+    'failed' => $failed,
+    'duration_ms' => $elapsed,
+    'api_version' => API_VERSION,
+    'request_id' => $apiRequestId,
+    'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+    'results' => $results,
+], 200, $pretty);
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function apiError(int $code, string $message): void {
-    http_response_code($code);
-    echo json_encode(['error' => $message, 'code' => $code,
-        'timestamp' => gmdate('Y-m-d\TH:i:s\Z')], JSON_UNESCAPED_UNICODE);
+function applyApiCorsHeaders(): void {
+    $origin = is_string($_SERVER['HTTP_ORIGIN'] ?? null) ? trim($_SERVER['HTTP_ORIGIN']) : '';
+    $configured = array_values(array_filter(array_map('trim', explode(',', API_CORS_ORIGINS))));
+    if (in_array('*', $configured, true)) {
+        header('Access-Control-Allow-Origin: *');
+    } elseif ($origin !== '' && in_array($origin, $configured, true)) {
+        header('Access-Control-Allow-Origin: ' . $origin);
+        header('Vary: Origin');
+    }
+    header('Access-Control-Allow-Methods: GET, HEAD, POST, OPTIONS');
+    header('Access-Control-Allow-Headers: Authorization, X-API-Key, Content-Type');
+    header('Access-Control-Max-Age: 600');
+}
+
+function apiJsonResponse(array $payload, int $status = 200, bool $pretty = false): void {
+    if (!headers_sent() && defined('API_VERSION')) header('X-Super-Whois-Version: ' . API_VERSION);
+    http_response_code($status);
+    $flags = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR;
+    if ($pretty) $flags |= JSON_PRETTY_PRINT;
+    try {
+        $json = json_encode($payload, $flags);
+    } catch (JsonException) {
+        http_response_code(500);
+        $json = '{"error":"JSON encoding failed.","error_code":"json_encoding_failed","code":500}';
+    }
+    if (strlen($json) > API_MAX_RESPONSE_BYTES) {
+        global $apiRequestId;
+        http_response_code(413);
+        $json = json_encode([
+            'error' => 'Response exceeds the configured size limit. Retry with raw=false or a smaller batch.',
+            'error_code' => 'response_too_large',
+            'code' => 413,
+            'request_id' => $apiRequestId ?? null,
+            'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+        ], JSON_UNESCAPED_SLASHES) ?: '{"error":"Response too large.","error_code":"response_too_large","code":413}';
+    }
+    if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'HEAD') echo $json;
     exit();
 }
 
-function dispatchApiQuery(string $query, array $whoisServers): array {
+function apiError(int $code, string $message, string $errorCode = 'request_error', array $extra = []): void {
+    global $apiRequestId;
+    if (!headers_sent()) {
+        applyApiCorsHeaders();
+        header('Content-Type: application/json; charset=UTF-8');
+        header('X-Content-Type-Options: nosniff');
+        if (is_string($apiRequestId ?? null) && $apiRequestId !== '') header('X-Request-ID: ' . $apiRequestId);
+    }
+    apiJsonResponse(array_merge([
+        'error' => $message,
+        'error_code' => $errorCode,
+        'code' => $code,
+        'request_id' => $apiRequestId ?? null,
+        'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+    ], $extra), $code);
+}
+
+function invalidApiQueryResult(string $query, string $requestId): array {
+    return [
+        'query' => $query,
+        'query_type' => 'invalid',
+        'query_method' => 'none',
+        'whois_server' => null,
+        'status' => 'error',
+        'error' => 'Invalid query.',
+        'error_code' => 'invalid_query',
+        'request_id' => $requestId,
+        'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+        'api_version' => API_VERSION,
+    ];
+}
+
+function finalizeApiResult(array $result, bool $includeRaw, string $requestId): array {
+    if (!$includeRaw) {
+        unset($result['raw']);
+    } elseif (isset($result['raw']) && is_string($result['raw']) && strlen($result['raw']) > API_RAW_MAX_BYTES) {
+        $result['raw'] = substr($result['raw'], 0, API_RAW_MAX_BYTES);
+        $result['raw_truncated'] = true;
+    }
+    $result['request_id'] = $requestId;
+    return $result;
+}
+
+function deadlineApiQueryResult(string $query): array {
+    return [
+        'query' => $query,
+        'query_type' => classifyQuery($query),
+        'query_method' => 'none',
+        'whois_server' => null,
+        'status' => 'error',
+        'error' => 'Batch execution deadline exceeded before this item started.',
+        'error_code' => 'batch_deadline_exceeded',
+        'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+        'api_version' => API_VERSION,
+        'cached' => false,
+        'cache_age_s' => 0,
+    ];
+}
+
+function dispatchApiQuery(string $query, array $whoisServers, bool $includeRaw = true): array {
     $base = [
         'query'        => $query,
         'query_type'   => '',
@@ -152,6 +333,8 @@ function dispatchApiQuery(string $query, array $whoisServers): array {
         'status'       => '',
         'timestamp'    => gmdate('Y-m-d\TH:i:s\Z'),
         'api_version'  => API_VERSION,
+        'cached'       => false,
+        'cache_age_s'  => 0,
     ];
     $type = classifyQuery($query);
     $t0   = microtime(true);
@@ -162,12 +345,17 @@ function dispatchApiQuery(string $query, array $whoisServers): array {
         $raw                = queryWhoisServer($server, $query);
         $elapsed            = round((microtime(true) - $t0) * 1000);
         appendLog('api_ip_lookup', ['query' => $query, 'server' => $server, 'ms' => $elapsed]);
-        if (count($raw) < 3) { $base['status'] = 'error'; $base['error'] = 'No data returned.'; return $base; }
+        if (count($raw) < 3) {
+            $base['status'] = 'error'; $base['error'] = 'No data returned.'; $base['error_code'] = 'upstream_no_data';
+            $base['query_method'] = 'whois'; $base['whois_server'] = $server; $base['query_ms'] = $elapsed; $base['duration_ms'] = $elapsed;
+            return $base;
+        }
         $base['status']       = 'found';
         $base['query_method'] = 'whois';
         $base['whois_server'] = $server;
         $base['query_ms']     = $elapsed;
-        $base['raw']          = implode("\n", censorIPs($raw));
+        $base['duration_ms']  = $elapsed;
+        if ($includeRaw) $base['raw'] = implode("\n", censorIPs($raw));
         return $base;
 
     } elseif ($type === 'asn') {
@@ -176,19 +364,23 @@ function dispatchApiQuery(string $query, array $whoisServers): array {
         $raw                = queryWhoisServer($server, strtoupper($query));
         $elapsed            = round((microtime(true) - $t0) * 1000);
         appendLog('api_asn_lookup', ['query' => $query, 'server' => $server, 'ms' => $elapsed]);
-        if (count($raw) < 3) { $base['status'] = 'error'; $base['error'] = 'No data returned.'; return $base; }
+        if (count($raw) < 3) {
+            $base['status'] = 'error'; $base['error'] = 'No data returned.'; $base['error_code'] = 'upstream_no_data';
+            $base['query_method'] = 'whois'; $base['whois_server'] = $server; $base['query_ms'] = $elapsed; $base['duration_ms'] = $elapsed;
+            return $base;
+        }
         $base['status']       = 'found';
         $base['query_method'] = 'whois';
         $base['whois_server'] = $server;
         $base['query_ms']     = $elapsed;
-        $base['raw']          = implode("\n", censorIPs($raw));
+        $base['duration_ms']  = $elapsed;
+        if ($includeRaw) $base['raw'] = implode("\n", censorIPs($raw));
         return $base;
 
     } elseif ($type === 'domain') {
         $base['query_type'] = 'domain';
-        $asciiQ   = idn_to_ascii($query, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
-        $apex     = detectApexDomain($query);
-        if ($apex) $base['subdomain_suggestion'] = $apex;
+        $asciiQ = idn_to_ascii($query, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+        if ($asciiQ === false) return invalidApiQueryResult($query, '');
 
         $result = lookupDomain($asciiQ, $whoisServers);
         $elapsed = round((microtime(true) - $t0) * 1000);
@@ -204,7 +396,22 @@ function dispatchApiQuery(string $query, array $whoisServers): array {
         $base['whois_server'] = $result['server'] ?? '';
         $base['query_method'] = $result['method'] ?? '';
         $base['query_ms']     = $elapsed;
+        $base['duration_ms']  = $elapsed;
         $base['status']       = $result['status'] ?? 'error';
+        $unicodeQ = idnToUnicodeDomain($asciiQ);
+        if ($unicodeQ !== null) $base['unicode_domain'] = $unicodeQ;
+        $base['lookup_domain'] = array_key_exists('lookup_domain', $result) ? $result['lookup_domain'] : strtolower($asciiQ);
+        if (!empty($result['is_subdomain'])) {
+            $base['is_subdomain'] = true;
+            $base['subdomain_suggestion'] = $base['lookup_domain'];
+        }
+        $cacheMeta = is_array($result['_cache'] ?? null) ? $result['_cache'] : [];
+        $base['cached'] = !empty($cacheMeta['hit']);
+        $base['cache_age_s'] = (int)($cacheMeta['age'] ?? 0);
+        if (!empty($cacheMeta['stale'])) $base['stale'] = true;
+        if (isset($result['availability'])) $base['availability'] = $result['availability'];
+        if (isset($result['upstream_status'])) $base['upstream_status'] = $result['upstream_status'];
+        if (!empty($result['raw_truncated'])) $base['raw_truncated'] = true;
 
         if (!empty($result['route_provider'])) {
             $base['route_provider'] = $result['route_provider'];
@@ -224,8 +431,9 @@ function dispatchApiQuery(string $query, array $whoisServers): array {
                 }
             }
             foreach (['registrar','registrar_iana_id','registrar_whois','abuse_email','abuse_phone',
-                      'registrant_name','registrant_org','registrant_country','registrant_email',
-                      'registrant_phone','admin_email','tech_email',
+                      'registrant_name','registrant_org','registrant_country',
+                      'registrant_address','registrant_city','registrant_region','registrant_postal_code',
+                      'registrant_email','registrant_phone','admin_email','tech_email',
                       'nameservers','status','dnssec'] as $f) {
                 if (!empty($parsed[$f])) $apiData[$f] = $parsed[$f];
             }
@@ -234,27 +442,36 @@ function dispatchApiQuery(string $query, array $whoisServers): array {
 
         if ($result['status'] === 'error') {
             $base['error'] = ($result['raw'][0] ?? 'Unknown error');
+            $base['error_code'] = $result['error_code'] ?? 'upstream_error';
+            if (!empty($result['attempted_servers']) && is_array($result['attempted_servers'])) {
+                $base['attempted_servers'] = array_values(array_filter(array_map('strval', $result['attempted_servers'])));
+            }
         }
         if ($result['status'] === 'restricted') {
-            $base['error'] = 'WHOIS access denied.';
+            $base['error'] = 'Registry lookup access is restricted.';
+            $base['error_code'] = $result['error_code'] ?? 'registry_access_restricted';
+            if (!empty($result['attempted_servers']) && is_array($result['attempted_servers'])) {
+                $base['attempted_servers'] = array_values(array_filter(array_map('strval', $result['attempted_servers'])));
+            }
             $webUrl = $result['web_url'] ?? whoisGetWebLookupUrl(explode('.', $asciiQ)[count(explode('.', $asciiQ))-1] ?? '');
             if ($webUrl !== null) $base['web_lookup_url'] = $webUrl;
         }
 
-        $base['raw'] = implode("\n", censorIPs($result['raw'] ?? []));
+        if ($includeRaw) $base['raw'] = implode("\n", censorIPs($result['raw'] ?? []));
         return $base;
 
     } else {
-        apiError(400, 'Invalid query. Please supply a valid domain, IP address, or ASN (e.g. AS15169).');
+        return invalidApiQueryResult($query, '');
     }
 }
 
 // ── API Documentation Page ─────────────────────────────────────────────────
 
 function renderApiDocs(array $T, string $lang): void {
+    if (!headers_sent()) header('X-Super-Whois-Version: ' . API_VERSION);
     $h        = fn(string $s) => htmlspecialchars($s, ENT_QUOTES, 'UTF-8');
     $authNote = API_ALLOW_UNAUTHENTICATED ? $T['api_auth_public'] : $T['api_auth_protected'];
-    $rateNote = sprintf($T['api_rate_note'], RATE_LIMIT);
+    $rateNote = sprintf($T['api_rate_note'], API_RATE_LIMIT);
     $scheme   = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host     = $_SERVER['HTTP_HOST'] ?? 'localhost';
     $host     = preg_replace('/:(80|443)$/', '', $host);
@@ -267,10 +484,12 @@ function renderApiDocs(array $T, string $lang): void {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="application-version" content="<?php echo SUPER_WHOIS_VERSION; ?>">
 <title><?php echo $h($T['api_page_title']); ?></title>
 <link rel="stylesheet" href="./style.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
 <style>
 .api-hero{text-align:center;padding:40px 0 20px}
@@ -313,7 +532,8 @@ function renderApiDocs(array $T, string $lang): void {
 .back-link{display:inline-flex;align-items:center;gap:6px;color:var(--clr-text-secondary);
   text-decoration:none;font-size:13px;font-weight:500;margin-bottom:14px}
 .back-link:hover{color:var(--clr-primary)}
-.sub-heading{font-size:14px;font-weight:700;margin:14px 0 6px;color:var(--clr-text)}
+ .sub-heading{font-size:14px;font-weight:700;margin:14px 0 6px;color:var(--clr-text)}
+ .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
 </head>
 <body>
@@ -321,7 +541,7 @@ function renderApiDocs(array $T, string $lang): void {
   <div class="header-content">
     <h2><i class="fa-solid fa-globe"></i> <?php echo $h($T['header_title']); ?></h2>
     <div class="header-actions">
-      <button id="theme-toggle" class="icon-btn" aria-label="Toggle dark mode">
+      <button id="theme-toggle" class="icon-btn" aria-label="<?php echo $h($T['theme_toggle']); ?>">
         <i class="fa-solid fa-moon" id="theme-icon"></i>
       </button>
       <div class="language-switcher">
@@ -345,17 +565,18 @@ function renderApiDocs(array $T, string $lang): void {
   <div class="illustrate-card doc-section">
     <div class="card-header"><h2><?php echo $h($T['api_section_base_url']); ?></h2></div>
     <div class="endpoint-box"><span class="method">GET</span><?php echo $h($baseUrl); ?></div>
+    <div class="endpoint-box"><span class="method">POST</span><?php echo $h($baseUrl); ?></div>
+    <p style="font-size:13px;color:var(--clr-text-muted)"><?php echo $T['api_post_desc']; ?></p>
   </div>
 
   <div class="illustrate-card doc-section">
     <div class="card-header"><h2><?php echo $h($T['api_section_auth']); ?></h2></div>
     <p style="font-size:14px;margin-bottom:12px"><?php echo $authNote; ?></p>
-    <div class="endpoint-box"><span class="method">GET</span><?php echo $h($baseUrl); ?>?q=google.com&amp;key=YOUR_API_KEY</div>
+    <div class="endpoint-box">curl -H "Authorization: Bearer YOUR_API_KEY" "<?php echo $h($baseUrl); ?>?q=google.com"</div>
     <p style="font-size:13px;color:var(--clr-text-muted);margin-bottom:6px"><?php echo $T['api_auth_keys_note']; ?></p>
-    <div class="json-block">&lt;?php
-$apiKeys = [
-    'sk_live_your_secret_key_here',
-];</div>
+    <p style="font-size:13px;color:var(--clr-text-muted);margin-bottom:6px"><?php echo $h($T['api_auth_local_label']); ?></p>
+    <div class="json-block">$apiKeys = ['paste-your-sk-code-here'];</div>
+    <div class="json-block">SUPER_WHOIS_API_KEYS=replace-with-a-long-random-secret</div>
   </div>
 
   <div class="illustrate-card doc-section">
@@ -363,9 +584,10 @@ $apiKeys = [
     <p style="font-size:14px;margin-bottom:12px"><?php echo $rateNote; ?></p>
     <table class="param-table">
       <tr><th><?php echo $h($T['api_rate_header_name']); ?></th><th><?php echo $h($T['api_rate_header_desc']); ?></th></tr>
-      <tr><td><code>X-RateLimit-Limit</code></td><td><?php echo $h($T['api_rate_limit_label']); ?></td></tr>
-      <tr><td><code>X-RateLimit-Remaining</code></td><td><?php echo $h($T['api_rate_remaining_label']); ?></td></tr>
-      <tr><td><code>X-RateLimit-Reset</code></td><td><?php echo $h($T['api_rate_reset_label']); ?></td></tr>
+      <tr><td><code>RateLimit-Limit</code></td><td><?php echo $h($T['api_rate_limit_label']); ?></td></tr>
+      <tr><td><code>RateLimit-Remaining</code></td><td><?php echo $h($T['api_rate_remaining_label']); ?></td></tr>
+      <tr><td><code>RateLimit-Reset</code></td><td><?php echo $h($T['api_rate_reset_label']); ?></td></tr>
+      <tr><td><code>Retry-After</code></td><td><?php echo $h($T['api_retry_after_desc']); ?></td></tr>
     </table>
   </div>
 
@@ -374,9 +596,9 @@ $apiKeys = [
     <table class="param-table">
       <tr><th><?php echo $h($T['api_param_name']); ?></th><th><?php echo $h($T['api_param_required']); ?></th><th><?php echo $h($T['api_param_desc']); ?></th></tr>
       <tr>
-        <td><code>q</code></td>
+        <td><code>q</code> / <code>queries</code></td>
         <td><span class="badge-req"><?php echo $h($T['api_param_required']); ?></span></td>
-        <td><?php echo $T['api_param_q_desc']; ?> <?php echo $T['api_batch_param_desc'] ?? 'Separate multiple queries with commas or newlines for batch mode.'; ?></td>
+        <td><?php echo $T['api_param_q_desc']; ?> <?php echo $T['api_post_desc']; ?> <?php echo $h(sprintf($T['api_batch_limits_note'], API_MAX_BATCH, API_AUTH_MAX_BATCH)); ?></td>
       </tr>
       <tr>
         <td><code>key</code></td>
@@ -387,6 +609,16 @@ $apiKeys = [
         <td><code>dns</code></td>
         <td><span class="badge-opt"><?php echo $h($T['api_optional']); ?></span></td>
         <td><?php echo $T['api_dns_param_desc']; ?></td>
+      </tr>
+      <tr>
+        <td><code>raw</code></td>
+        <td><span class="badge-opt"><?php echo $h($T['api_optional']); ?></span></td>
+        <td><?php echo $T['api_raw_param_desc']; ?></td>
+      </tr>
+      <tr>
+        <td><code>pretty</code></td>
+        <td><span class="badge-opt"><?php echo $h($T['api_optional']); ?></span></td>
+        <td><?php echo $T['api_pretty_param_desc']; ?></td>
       </tr>
       <tr>
         <td><code>lang</code></td>
@@ -406,20 +638,36 @@ $apiKeys = [
     <div class="endpoint-box"><span class="method">GET</span><?php echo $h($baseUrl); ?>?q=AS15169</div>
     <p class="sub-heading"><?php echo $h($T['api_endpoint_dns']); ?></p>
     <div class="endpoint-box"><span class="method">GET</span><?php echo $h($baseUrl); ?>?q=google.com&amp;dns=true</div>
-    <p class="sub-heading"><?php echo $h($T['api_endpoint_batch'] ?? 'Batch lookup'); ?></p>
-    <div class="endpoint-box"><span class="method">GET</span><?php echo $h($baseUrl); ?>?q=google.com,github.com,cloudflare.com</div>
+    <p class="sub-heading"><?php echo $h($T['api_endpoint_batch']); ?></p>
+    <div class="endpoint-box"><span class="method">GET</span><?php echo $h($baseUrl); ?>?q=google.com,github.com,cloudflare.com&amp;raw=false</div>
+    <div class="endpoint-box"><span class="method">POST</span>{"queries":["google.com","github.com"],"raw":false}</div>
   </div>
 
   <div class="illustrate-card doc-section">
     <div class="card-header"><h2><?php echo $h($T['api_section_response']); ?></h2></div>
+    <p style="font-size:13px;color:var(--clr-text-muted);margin-bottom:10px"><?php echo $h($T['api_status_note']); ?></p>
     <table class="param-table">
       <tr><th><?php echo $h($T['api_col_field']); ?></th><th><?php echo $h($T['api_col_type']); ?></th><th><?php echo $h($T['api_col_desc']); ?></th></tr>
       <tr><td><code>query</code></td><td>string</td><td><?php echo $h($T['api_field_query']); ?></td></tr>
       <tr><td><code>query_type</code></td><td>string</td><td><?php echo $T['api_field_query_type']; ?></td></tr>
+      <tr><td><code>query_method</code></td><td>string</td><td><?php echo $h($T['api_field_query_method']); ?></td></tr>
+      <tr><td><code>lookup_domain</code></td><td>string|null</td><td><?php echo $h($T['api_field_lookup_domain']); ?></td></tr>
+      <tr><td><code>unicode_domain</code></td><td>string?</td><td><?php echo $h($T['api_field_unicode_domain']); ?></td></tr>
+      <tr><td><code>is_subdomain</code></td><td>boolean?</td><td><?php echo $h($T['api_field_is_subdomain']); ?></td></tr>
       <tr><td><code>status</code></td><td>string</td><td><?php echo $T['api_field_status']; ?></td></tr>
-      <tr><td><code>whois_server</code></td><td>string</td><td><?php echo $T['api_field_whois_server']; ?></td></tr>
+      <tr><td><code>whois_server</code></td><td>string|null</td><td><?php echo $T['api_field_whois_server']; ?></td></tr>
+       <tr><td><code>attempted_servers</code></td><td>array?</td><td><?php echo $h($T['api_field_attempted_servers']); ?></td></tr>
       <tr><td><code>timestamp</code></td><td>ISO 8601</td><td><?php echo $h($T['api_field_timestamp']); ?></td></tr>
       <tr><td><code>query_ms</code></td><td>integer</td><td><?php echo $h($T['api_field_query_ms']); ?></td></tr>
+      <tr><td><code>cached</code></td><td>boolean</td><td><?php echo $h($T['api_field_cached']); ?></td></tr>
+      <tr><td><code>cache_age_s</code></td><td>integer</td><td><?php echo $h($T['api_field_cache_age']); ?></td></tr>
+      <tr><td><code>stale</code></td><td>boolean?</td><td><?php echo $h($T['api_field_stale']); ?></td></tr>
+      <tr><td><code>duration_ms</code></td><td>number</td><td><?php echo $h($T['api_field_duration']); ?></td></tr>
+      <tr><td><code>availability</code></td><td>string?</td><td><?php echo $h($T['api_field_availability']); ?></td></tr>
+      <tr><td><code>upstream_status</code></td><td>integer?</td><td><?php echo $h($T['api_field_upstream_status']); ?></td></tr>
+      <tr><td><code>dns_records</code></td><td>object?</td><td><?php echo $h($T['api_field_dns_records']); ?></td></tr>
+      <tr><td><code>error_code</code></td><td>string?</td><td><?php echo $h($T['api_field_error_code']); ?></td></tr>
+      <tr><td><code>request_id</code></td><td>string</td><td><?php echo $h($T['api_field_request_id']); ?></td></tr>
       <tr><td><code>api_version</code></td><td>string</td><td><?php echo $h($T['api_field_api_version']); ?></td></tr>
       <tr><td><code>data</code></td><td>object</td><td><?php echo $T['api_field_data']; ?></td></tr>
       <tr><td><code>data.creation_date</code></td><td>ISO 8601</td><td><?php echo $h($T['api_field_creation']); ?></td></tr>
@@ -427,11 +675,14 @@ $apiKeys = [
       <tr><td><code>data.updated_date</code></td><td>ISO 8601</td><td><?php echo $h($T['api_field_updated']); ?></td></tr>
       <tr><td><code>data.registrar</code></td><td>string</td><td><?php echo $h($T['api_field_registrar']); ?></td></tr>
       <tr><td><code>data.registrar_iana_id</code></td><td>string</td><td><?php echo $h($T['api_field_iana_id']); ?></td></tr>
+      <tr><td><code>data.registrant_address</code><br><code>data.registrant_city</code><br><code>data.registrant_region</code><br><code>data.registrant_postal_code</code></td><td>string?</td><td><?php echo $h($T['api_field_registrant_address']); ?></td></tr>
       <tr><td><code>data.nameservers</code></td><td>array</td><td><?php echo $h($T['api_field_nameservers']); ?></td></tr>
       <tr><td><code>data.status</code></td><td>array</td><td><?php echo $h($T['api_field_statuses']); ?></td></tr>
       <tr><td><code>data.dnssec</code></td><td>string</td><td><?php echo $h($T['api_field_dnssec']); ?></td></tr>
       <tr><td><code>subdomain_suggestion</code></td><td>string?</td><td><?php echo $h($T['api_field_subdomain']); ?></td></tr>
-      <tr><td><code>raw</code></td><td>string</td><td><?php echo $h($T['api_field_raw']); ?></td></tr>
+      <tr><td><code>raw</code></td><td>string?</td><td><?php echo $T['api_field_raw']; ?>; <?php echo $h(sprintf($T['api_field_raw_limit'], API_RAW_MAX_BYTES)); ?></td></tr>
+      <tr><td><code>raw_truncated</code></td><td>boolean?</td><td><?php echo $h($T['api_field_raw_truncated']); ?></td></tr>
+      <tr><td><code>batch/count/succeeded/failed</code></td><td><?php echo $h($T['api_field_batch_type']); ?></td><td><?php echo $h($T['api_field_batch_meta']); ?></td></tr>
     </table>
   </div>
 
@@ -440,10 +691,14 @@ $apiKeys = [
     <div class="json-block">{
   "query": "google.com",
   "query_type": "domain",
-  "whois_server": "whois.markmonitor.com",
+  "query_method": "rdap",
+  "lookup_domain": "google.com",
+  "whois_server": "rdap.verisign.com",
   "status": "registered",
-  "timestamp": "2025-01-15T10:23:45Z",
-  "query_ms": 320,
+  "cached": false,
+  "cache_age_s": 0,
+  "timestamp": "2026-08-08T10:23:45Z",
+  "query_ms": 180,
   "api_version": "<?php echo API_VERSION; ?>",
   "data": {
     "creation_date": "1997-09-15T04:00:00Z",
@@ -456,17 +711,22 @@ $apiKeys = [
     "status": ["clientDeleteProhibited","clientTransferProhibited"],
     "dnssec": "unsigned"
   },
-  "raw": "Domain Name: GOOGLE.COM\r\n..."
+  "request_id": "9c2e7f6f26a9d2c1",
+  "raw": "RDAP 200 from rdap.verisign.com\n--- RDAP JSON ---\n{...}"
 }</div>
   </div>
 
   <div class="illustrate-card doc-section">
-    <div class="card-header"><h2><?php echo $h($T['api_batch_sample_title'] ?? 'Batch Response — <code>api.php?q=google.com,github.com</code>'); ?></h2></div>
+    <div class="card-header"><h2><?php echo $T['api_batch_sample_title']; ?></h2></div>
     <div class="json-block">{
   "batch": true,
   "count": 2,
+  "succeeded": 2,
+  "failed": 0,
+  "duration_ms": 420,
   "api_version": "<?php echo API_VERSION; ?>",
-  "timestamp": "2025-01-15T10:23:45Z",
+  "request_id": "9c2e7f6f26a9d2c1",
+  "timestamp": "2026-08-08T10:23:45Z",
   "results": [
     { "query": "google.com", "query_type": "domain", "status": "registered", "..." : "..." },
     { "query": "github.com", "query_type": "domain", "status": "registered", "..." : "..." }
@@ -480,7 +740,11 @@ $apiKeys = [
       <tr><th>HTTP</th><th><?php echo $h($T['api_error_meaning']); ?></th></tr>
       <tr><td><code>400</code></td><td><?php echo $T['api_error_400']; ?></td></tr>
       <tr><td><code>401</code></td><td><?php echo $T['api_error_401']; ?></td></tr>
+      <tr><td><code>405</code></td><td><?php echo $h($T['api_http_405']); ?></td></tr>
+      <tr><td><code>413</code></td><td><?php echo $h($T['api_http_413']); ?></td></tr>
+      <tr><td><code>422</code></td><td><?php echo $h($T['api_http_422']); ?></td></tr>
       <tr><td><code>429</code></td><td><?php echo $T['api_error_429']; ?></td></tr>
+      <tr><td><code>503</code></td><td><?php echo $h($T['api_http_503']); ?></td></tr>
       <tr><td><code>500</code></td><td><?php echo $T['api_error_500']; ?></td></tr>
     </table>
   </div>
@@ -488,12 +752,16 @@ $apiKeys = [
   <div class="illustrate-card doc-section">
     <div class="card-header"><h2><?php echo $h($T['api_section_try']); ?></h2></div>
     <div class="try-box">
-      <input type="text" class="try-input" id="try-input" placeholder="google.com, 8.8.8.8, AS15169 (comma = batch)" value="google.com">
+      <label class="sr-only" for="try-input"><?php echo $h($T['api_try_query_label']); ?></label>
+      <input type="text" class="try-input" id="try-input" placeholder="<?php echo $h($T['api_try_placeholder']); ?>" value="google.com">
+      <?php if (!API_ALLOW_UNAUTHENTICATED): ?>
+      <input type="password" class="try-input" id="try-key" placeholder="<?php echo $h($T['sk_placeholder']); ?>" autocomplete="off">
+      <?php endif; ?>
       <button class="try-btn" onclick="runTry()">
         <i class="fa-solid fa-play"></i> <?php echo $h($T['api_try_send']); ?>
       </button>
     </div>
-    <div id="try-result">
+    <div id="try-result" role="status" aria-live="polite" aria-atomic="true">
       <p class="response-status" id="try-status"></p>
       <div class="json-block" id="try-output"></div>
     </div>
@@ -516,14 +784,17 @@ data = resp.json()
 print(data['status'])
 print(data['data']['registrar'])</div>
     <p class="sub-heading" style="margin-top:16px"><?php echo $h($T['api_example_curl']); ?></p>
-    <div class="json-block">curl "<?php echo $h($baseUrl); ?>?q=google.com" | python3 -m json.tool</div>
-    <p class="sub-heading" style="margin-top:16px"><?php echo $h($T['api_example_batch'] ?? 'Batch Query (cURL)'); ?></p>
-    <div class="json-block">curl "<?php echo $h($baseUrl); ?>?q=google.com,github.com,cloudflare.com" | python3 -m json.tool</div>
+    <div class="json-block">curl -H "Authorization: Bearer YOUR_API_KEY" "<?php echo $h($baseUrl); ?>?q=google.com&amp;raw=false" | python3 -m json.tool</div>
+    <p class="sub-heading" style="margin-top:16px"><?php echo $h($T['api_example_batch']); ?></p>
+    <div class="json-block">curl "<?php echo $h($baseUrl); ?>?q=google.com,github.com,cloudflare.com&amp;raw=false" | python3 -m json.tool</div>
+    <p class="sub-heading" style="margin-top:16px"><?php echo $h($T['api_post_label']); ?></p>
+    <div class="json-block">curl -X POST -H "Content-Type: application/json" -d '{"queries":["google.com","github.com"],"raw":false}' "<?php echo $h($baseUrl); ?>"</div>
   </div>
 </main>
 
 <footer>
   <p><?php echo $T['footer_text']; ?>
+    <span class="version-badge">v<?php echo SUPER_WHOIS_VERSION; ?></span>
     | <a href="index.php?lang=<?php echo $lang; ?>"><?php echo $h($T['api_footer_lookup']); ?></a>
     | <a href="https://github.com/iezx/Super-Whois" target="_blank" rel="noopener noreferrer"><?php echo $h($T['footer_github']); ?></a>
   </p>
@@ -536,20 +807,24 @@ function applyTheme(d){document.documentElement.setAttribute('data-theme',d?'dar
 b.addEventListener('click',()=>applyTheme(document.documentElement.getAttribute('data-theme')!=='dark'));
 
 const loadTxt=<?php echo json_encode($T['api_try_loading']); ?>, errTxt=<?php echo json_encode($T['api_try_network_error']); ?>;
+const processedTpl=<?php echo json_encode($T['api_try_processed']); ?>, failedTpl=<?php echo json_encode($T['api_try_failed']); ?>;
 function runTry(){
   const q=document.getElementById('try-input').value.trim(); if(!q) return;
   const sEl=document.getElementById('try-status'),oEl=document.getElementById('try-output');
   document.getElementById('try-result').style.display='block';
   sEl.textContent=loadTxt; sEl.className='response-status'; oEl.textContent='';
-  fetch('api.php?q='+encodeURIComponent(q))
+  const keyEl=document.getElementById('try-key'),options={};
+  if(keyEl&&keyEl.value)options.headers={'Authorization':'Bearer '+keyEl.value};
+  fetch('api.php?q='+encodeURIComponent(q),options)
     .then(r=>{const sc=r.status,ok=r.ok;return r.json().then(d=>({ok,sc,d}))})
     .then(({ok,sc,d})=>{
-      sEl.textContent='HTTP '+sc+(ok?' OK':' Error');
-      sEl.className='response-status '+(ok?'status-ok':'status-err');
+      const appOk=ok&&d.status!=='error'&&!(d.batch&&d.failed===d.count);
+      sEl.textContent=(appOk?processedTpl:failedTpl).replace('%d',sc);
+      sEl.className='response-status '+(appOk?'status-ok':'status-err');
       oEl.textContent=JSON.stringify(d,null,2);
     }).catch(e=>{sEl.textContent=errTxt;sEl.className='response-status status-err';oEl.textContent=String(e)});
 }
-document.getElementById('try-input').addEventListener('keydown',e=>{if(e.key==='Enter')runTry()});
+document.getElementById('try-input')?.addEventListener('keydown',e=>{if(e.key==='Enter')runTry()});
 </script>
 </body>
 </html>

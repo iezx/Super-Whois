@@ -1279,7 +1279,7 @@ $whoisServers = array(
 "save"=>"whois.nic.save",
 "saxo"=>"whois.aridnrs.net.au",
 "saxo"=>"whois.nic.saxo",
-"sb"=>"whois.nic.net.sb",
+
 "sbi"=>"whois.nic.sbi",
 "sbs"=>"whois.nic.sbs",
 "sc"=>"whois2.afilias-grs.net",
@@ -1927,7 +1927,10 @@ $whoisServers = array(
 "rs"  => "whois.rnids.rs",
 "rw"  => "whois.ricta.org.rw",
 "sa"  => "whois.nic.net.sa",
-"sb"  => "whois.nic.sb",
+// IANA delegates .SB WHOIS to whois.nic.net.sb. Keep this reviewed override
+// at the end of the compatibility table so legacy duplicate entries cannot
+// silently route .SB queries to the retired/wrong host.
+"sb"  => "whois.nic.net.sb",
 "sc"  => "whois.nic.sc",
 "sd"  => "whois.sd",
 "si"  => "whois.arnes.si",

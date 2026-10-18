@@ -6,6 +6,33 @@
  * Returns structured data suitable for JSON output.
  */
 function lookupDNSRecords(string $domain): array {
+    $ascii = idn_to_ascii(trim($domain, '.'), IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+    if ($ascii === false || !filter_var($ascii, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)) {
+        return ['domain' => $domain, 'records' => [], 'errors' => ['Invalid domain.'], 'cached' => false, 'cache_age_s' => 0];
+    }
+    $ascii = strtolower($ascii);
+    $cached = cacheGetOrCompute(
+        'dns_lookup_v1:' . $ascii,
+        static fn() => lookupDNSRecordsUncached($ascii),
+        static function ($value): int {
+            $ttls = [];
+            foreach (($value['records'] ?? []) as $records) {
+                foreach ($records as $record) {
+                    if (isset($record['ttl']) && is_numeric($record['ttl'])) $ttls[] = (int)$record['ttl'];
+                }
+            }
+            return $ttls === [] ? 30 : max(30, min(300, min($ttls)));
+        },
+        static fn() => false,
+        0
+    );
+    $result = is_array($cached['value']) ? $cached['value'] : ['domain' => $ascii, 'records' => [], 'errors' => ['DNS lookup failed.']];
+    $result['cached'] = $cached['hit'];
+    $result['cache_age_s'] = $cached['age'];
+    return $result;
+}
+
+function lookupDNSRecordsUncached(string $domain): array {
     $result = [
         'domain' => $domain,
         'records' => [],

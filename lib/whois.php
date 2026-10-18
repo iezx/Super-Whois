@@ -16,6 +16,8 @@ function whoisGetWebLookupUrl(string $tld): ?string {
         'tt' => 'https://whois.nic.tt/',
         'uy' => 'https://nic.uy/whois/',
         'ba' => 'https://www.nic.ba/',
+        // IANA lists the .SB registration portal at nic.net.sb.
+        'sb' => 'http://www.nic.net.sb/',
         'gr' => 'https://grweb.ics.forth.gr/public/whois',
         'it' => 'https://www.nic.it/en/tools/whois',
         'fr' => 'https://www.afnic.fr/',
@@ -49,7 +51,8 @@ function whoisGetWebLookupUrl(string $tld): ?string {
         'au' => 'https://whois.auda.org.au/',
         'za' => 'https://www.registry.net.za/whois.php',
     ];
-    return $map[strtolower($tld)] ?? null;
+    $tld = strtolower(trim($tld, '.'));
+    return $map[$tld] ?? (getIANARegistryMetadata($tld)['url'] ?? null);
 }
 
 /**
@@ -71,16 +74,16 @@ function whoisLooksLikeDenied(array $lines): bool {
         '/\bplease use (?:the )?web whois\b/i',
         '/\bwhois service unavailable\b/i',
         // Chinese denial patterns
-        '/\b查询过于频繁\b/',
-        '/\b访问被拒绝\b/',
-        '/\b请求被拒绝\b/',
-        '/\b连接被拒绝\b/',
-        '/\b您的IP.*(?:已被|被)\s*(?:限制|禁止|封锁)/',
-        '/\b该IP.*(?:已被|被)\s*(?:限制|禁止|封锁)/',
-        '/\b超出查询.*限制\b/',
-        '/\b已被禁止查询\b/',
-        '/\b请稍后再试\b/',
-        '/\b服务不可用\b/',
+        '/查询过于频繁/u',
+        '/访问被拒绝/u',
+        '/请求被拒绝/u',
+        '/连接被拒绝/u',
+        '/您的IP.*(?:已被|被)\s*(?:限制|禁止|封锁)/u',
+        '/该IP.*(?:已被|被)\s*(?:限制|禁止|封锁)/u',
+        '/超出查询.*限制/u',
+        '/已被禁止查询/u',
+        '/请稍后再试/u',
+        '/服务不可用/u',
         // Additional English patterns
         '/\bquery refused\b/i',
         '/\bconnection has been rejected\b/i',
@@ -94,27 +97,45 @@ function whoisLooksLikeDenied(array $lines): bool {
         return true;
     }
 
-    // FIX: Added explicit return false to satisfy the bool return type.
     return false;
 }
 
-function whoisIndicatesDomainAvailable(array $lines): bool {
-    $rawStr = strtolower(implode("\n", $lines));
-    $freeKws = [
-        'not found','no match','no data found','no entries found',
-        'domain not found','is not registered','not exist',
-        'object does not exist','no object found','status: free',
-        'available for registration','this domain is not registered',
-        'no information available',
-        // Chinese / CNNIC responses
-        'no matching record','no entries found in database',
-        '没有匹配的记录','域名不存在','该域名尚未注册',
-        '你要查询的域名不存在','该域名没有注册记录',
-        '没有找到相关信息','查詢的域名不存在',
-        '查询的域名不存在',
+function whoisIndicatesDomainAvailable(array $lines, string $domain = ''): bool {
+    $patterns = [
+        '/^no match for\b/i',
+        '/^(?:domain\s+)?not found\.?$/i',
+        '/^no (?:matching )?(?:record|entries|data)(?: found)?(?: in (?:the )?database)?\.?$/i',
+        '/^no entries found(?: for .+)?\.?$/i',
+        '/^(?:the )?domain\b.+\bis not registered\.?$/i',
+        '/^(?:object|domain) does not exist\.?$/i',
+        '/^no object found\.?$/i',
+        '/^status\s*:\s*(?:free|available)\b/i',
+        '/^available for registration\.?$/i',
+        '/^(?:没有匹配的记录|域名不存在|该域名尚未注册|你要查询的域名不存在|该域名没有注册记录|没有找到相关信息|查詢的域名不存在|查询的域名不存在)[。.]?$/u',
     ];
-    foreach ($freeKws as $kw) {
-        if (str_contains($rawStr, $kw)) return true;
+    foreach ($lines as $line) {
+        $line = trim((string)$line, " \t\r\n%>");
+        if ($domain !== '' && preg_match('/^no match for\s+["\']?([a-z0-9.-]+)["\']?\.?$/i', $line, $match)) {
+            if (strcasecmp(rtrim($match[1], '.'), rtrim($domain, '.')) === 0) return true;
+            continue;
+        }
+        if ($domain !== '' && preg_match('/^' . preg_quote($domain, '/') . '\s+is free\.?$/i', $line) === 1) return true;
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $line) === 1) return true;
+        }
+    }
+    return false;
+}
+
+function whoisHasRegistrationEvidence(array $lines, array $parsed = []): bool {
+    foreach (['registrar', 'creation_date', 'expiration_date', 'updated_date', 'nameservers', 'status',
+              'registrant_name', 'registrant_org', 'registrant_country', 'registrant_address', 'registrant_city', 'registrant_region', 'registrant_postal_code'] as $field) {
+        if (!empty($parsed[$field])) return true;
+    }
+    foreach ($lines as $line) {
+        if (preg_match('/^(?:domain(?:\s+name)?|object|registrar|name\s*server|nserver)\s*:/i', trim((string)$line))) {
+            return true;
+        }
     }
     return false;
 }
@@ -125,7 +146,7 @@ function buildWhoisDomainQueryByTld(string $domainAscii, string $tld): string {
     return $domainAscii;
 }
 
-function lookupDomainOtherMethods(string $domainAscii): ?array {
+function lookupDomainOtherMethods(string $domainAscii, array $attemptedServers = []): ?array {
     $labels = explode('.', $domainAscii);
     $tld = strtolower((string)end($labels));
 
@@ -158,11 +179,14 @@ function lookupDomainOtherMethods(string $domainAscii): ?array {
     // IANA WHOIS discovery as final protocol-level fallback.
     $ianaServer = getIANAWhoisServer($tld);
     if ($ianaServer === null) return null;
+    foreach ($attemptedServers as $attempted) {
+        if (strcasecmp((string)$attempted, $ianaServer) === 0) return null;
+    }
     $query = buildWhoisDomainQueryByTld($domainAscii, $tld);
     [$rawLines, $usedServer] = resolveFullWhois($ianaServer, $query);
     if (empty($rawLines) || whoisLooksLikeDenied($rawLines)) return null;
 
-    if (whoisIndicatesDomainAvailable($rawLines)) {
+    if (whoisIndicatesDomainAvailable($rawLines, $domainAscii)) {
         return [
             'status' => 'available',
             'method' => 'whois-iana',
@@ -173,55 +197,108 @@ function lookupDomainOtherMethods(string $domainAscii): ?array {
     }
 
     $censored = censorIPs($rawLines);
+    $parsed = parseWhoisData($censored);
+    if (!whoisHasRegistrationEvidence($censored, $parsed)) return null;
     return [
         'status' => 'registered',
         'method' => 'whois-iana',
         'server' => $usedServer,
-        'parsed' => parseWhoisData($censored),
+        'parsed' => $parsed,
         'raw'    => $rawLines,
     ];
 }
 
 /**
- * Domain fallback chain:
- * whois_servers -> RDAP -> other methods -> error.
- * This function handles the last two stages (RDAP, other methods).
+ * Reviewed RDAP hints for special suffixes; WHOIS uses the common chain.
  */
 function lookupRestrictedDomainFallback(string $domainAscii): ?array {
     $labels = explode('.', $domainAscii);
     $tld = strtolower((string)end($labels));
 
-    // Stage 2: RDAP (with preferred bases for known registries)
+    // IANA bootstrap is authoritative. The one reviewed manual base remains a
+    // non-authoritative compatibility fallback; its 404 is never treated as
+    // proof of availability.
     if (in_array($tld, ['ch', 'li'], true)) {
         $rdap = lookupDomainViaRdap($domainAscii, ['https://rdap.nic.li/']);
-    } elseif ($tld === 'hk') {
-        $rdap = lookupDomainViaRdap($domainAscii, ['https://rdap.hkirc.hk/']);
-    } elseif ($tld === 'tw') {
-        $rdap = lookupDomainViaRdap($domainAscii, ['https://rdap.twnic.tw/']);
-    } elseif ($tld === 'kr') {
-        $rdap = lookupDomainViaRdap($domainAscii, ['https://rdap.kr/']);
-    } elseif ($tld === 'cn') {
-        $rdap = lookupDomainViaRdap($domainAscii, ['https://rdap.cnnic.cn/']);
-    } elseif ($tld === 'jp') {
-        $rdap = lookupDomainViaRdap($domainAscii, ['https://rdap.jprs.jp/']);
     } else {
         $rdap = lookupDomainViaRdap($domainAscii);
     }
     if ($rdap !== null) return $rdap;
 
-    // Stage 3: other methods
-    return lookupDomainOtherMethods($domainAscii);
+    return null;
 }
 
 /**
- * Unified domain lookup — RDAP-first, WHOIS fallback.
+ * Unified cached domain lookup — registrable apex, RDAP first, WHOIS fallback.
  */
 function lookupDomain(string $domainAscii, array $whoisServers): array {
-    $domainAscii = strtolower(trim($domainAscii, '.'));
+    $inputDomain = strtolower(trim($domainAscii, '.'));
+    $lookupDomain = normalizeDomainForLookup($inputDomain);
+    if ($lookupDomain === null) {
+        return [
+            'status' => 'error',
+            'error_code' => 'not_registrable',
+            'method' => 'none',
+            'server' => '',
+            'parsed' => [],
+            'raw' => ['The query is not a registrable domain under the ICANN Public Suffix List.'],
+            'lookup_domain' => null,
+            '_cache' => ['hit' => false, 'stale' => false, 'age' => 0],
+        ];
+    }
+
+    $cacheKey = 'domain_lookup_v3:' . $lookupDomain;
+    $cached = cacheGetOrCompute(
+        $cacheKey,
+        static fn() => boundLookupRawResult(lookupDomainUncached($lookupDomain, $whoisServers)),
+        static function ($result): int {
+            return match ($result['status'] ?? 'error') {
+                'registered' => CACHE_TTL_REGISTERED,
+                'available' => CACHE_TTL_NOT_FOUND,
+                default => CACHE_TTL_ERROR,
+            };
+        },
+        static fn($result): bool => ($result['status'] ?? 'error') === 'error',
+        CACHE_STALE_MAX_AGE,
+        static fn($stale): bool => is_array($stale) && ($stale['status'] ?? '') === 'registered'
+    );
+    $result = is_array($cached['value']) ? $cached['value'] : [
+        'status' => 'error', 'method' => 'none', 'server' => '', 'parsed' => [], 'raw' => ['Lookup failed.'],
+    ];
+    $result['lookup_domain'] = $lookupDomain;
+    if ($inputDomain !== $lookupDomain) {
+        $result['input_domain'] = $inputDomain;
+        $result['is_subdomain'] = true;
+    }
+    $result['_cache'] = ['hit' => $cached['hit'], 'stale' => $cached['stale'], 'age' => $cached['age']];
+    return $result;
+}
+
+function boundLookupRawResult(array $result): array {
+    if (!is_array($result['raw'] ?? null)) return $result;
+    $bounded = [];
+    $used = 0;
+    foreach ($result['raw'] as $line) {
+        $line = (string)$line;
+        $remaining = LOOKUP_RAW_MAX_BYTES - $used;
+        if ($remaining <= 0) { $result['raw_truncated'] = true; break; }
+        if (strlen($line) + 1 > $remaining) {
+            $bounded[] = substr($line, 0, max(0, $remaining - 1));
+            $result['raw_truncated'] = true;
+            break;
+        }
+        $bounded[] = $line;
+        $used += strlen($line) + 1;
+    }
+    $result['raw'] = $bounded;
+    return $result;
+}
+
+function lookupDomainUncached(string $domainAscii, array $whoisServers): array {
     $labels = explode('.', $domainAscii);
     $tld = strtolower((string)end($labels));
 
-    // Stage 1: Check routing table for special TLDs
+    // Special routes are hints; a failed RDAP route must still try WHOIS.
     $route = getRoutedProviderForDomain($domainAscii);
     if ($route !== null) {
         $result = lookupRestrictedDomainFallback($domainAscii);
@@ -229,88 +306,122 @@ function lookupDomain(string $domainAscii, array $whoisServers): array {
             $result['method'] = $result['method'] ?? ('special:' . $route['provider']);
             return $result;
         }
-        // Routing failed — return error
-        return [
-            'status' => 'restricted',
-            'method' => 'special',
-            'server' => 'route:' . $route['provider'],
-            'parsed' => [],
-            'raw'    => ['This suffix requires a special lookup route, but all methods failed.'],
-            'route_provider' => $route['provider'],
-            'route_suffix'   => $route['suffix'],
-        ];
     }
 
     // Stage 2: RDAP first (for all non-routed domains)
-    $rdap = lookupDomainViaRdap($domainAscii);
+    $rdap = $route === null ? lookupDomainViaRdap($domainAscii) : null;
     if ($rdap !== null) return $rdap;
 
-    // Stage 3: WHOIS (port 43) as fallback
-    $server = resolveWhoisServer($domainAscii, $whoisServers);
-    if ($server === null) {
-        // No WHOIS server known — try IANA discovery
+    // Stage 3: dynamic IANA WHOIS discovery. The local snapshot remains a
+    // compatibility fallback: a stale IANA referral must not prevent a
+    // reviewed local route from rescuing the lookup.
+    $candidateServers = [];
+    foreach ([getIANAWhoisServer($tld), resolveWhoisServer($domainAscii, $whoisServers)] as $candidate) {
+        if (!is_string($candidate) || $candidate === '') continue;
+        $candidate = normalizeWhoisServerHost($candidate);
+        if ($candidate === null) continue;
+        $duplicate = false;
+        foreach ($candidateServers as $known) {
+            if (strcasecmp($known, $candidate) === 0) { $duplicate = true; break; }
+        }
+        if (!$duplicate) $candidateServers[] = $candidate;
+    }
+
+    if ($candidateServers === []) {
         $other = lookupDomainOtherMethods($domainAscii);
         if ($other !== null) return $other;
         return [
             'status' => 'error',
+            'error_code' => 'no_whois_server',
             'method' => 'none',
             'server' => '',
+            'attempted_servers' => [],
             'parsed' => [],
-            'raw'    => ['No WHOIS server known for this TLD, and RDAP/other fallback methods failed.'],
+            'raw' => ['No WHOIS server is published for this TLD, and RDAP/other fallback methods failed.'],
+            'web_url' => whoisGetWebLookupUrl($tld),
         ];
     }
 
-    $query = buildWhoisDomainQueryByTld($domainAscii, $tld);
-    [$rawLines, $usedServer] = resolveFullWhois($server, $query);
+    $attemptedServers = [];
+    $lastServer = '';
+    $deniedLines = null;
+    $invalidLines = null;
+    foreach ($candidateServers as $server) {
+        $attemptedServers[] = $server;
+        $query = buildWhoisDomainQueryByTld($domainAscii, $tld);
+        [$rawLines, $usedServer] = resolveFullWhois($server, $query);
+        $lastServer = $usedServer !== '' ? $usedServer : $server;
+        if (empty($rawLines)) continue;
 
-    if (empty($rawLines)) {
-        // WHOIS failed — try IANA discovery as last resort
-        $other = lookupDomainOtherMethods($domainAscii);
-        if ($other !== null) return $other;
+        if (whoisLooksLikeDenied($rawLines)) {
+            if ($deniedLines === null) $deniedLines = $rawLines;
+            continue;
+        }
+
+        if (whoisIndicatesDomainAvailable($rawLines, $domainAscii)) {
+            return [
+                'status' => 'available',
+                'availability' => 'not_found',
+                'method' => 'whois',
+                'server' => $lastServer,
+                'parsed' => [],
+                'raw' => $rawLines,
+            ];
+        }
+
+        $censored = censorIPs($rawLines);
+        $parsed = parseWhoisData($censored);
+        if (!whoisHasRegistrationEvidence($censored, $parsed)) {
+            if ($invalidLines === null) $invalidLines = $rawLines;
+            continue;
+        }
+        return [
+            'status' => 'registered',
+            'method' => 'whois',
+            'server' => $lastServer,
+            'parsed' => $parsed,
+            'raw' => $rawLines,
+        ];
+    }
+
+    // A final IANA referral/special method can still succeed after both
+    // primary candidates time out or return a denial page.
+    $other = lookupDomainOtherMethods($domainAscii, $attemptedServers);
+    if ($other !== null) return $other;
+
+    if ($deniedLines !== null) {
+        return [
+            'status' => 'restricted',
+            'error_code' => 'registry_access_restricted',
+            'method' => 'whois',
+            'server' => $lastServer,
+            'attempted_servers' => $attemptedServers,
+            'parsed' => [],
+            'raw' => $deniedLines,
+            'web_url' => whoisGetWebLookupUrl($tld),
+        ];
+    }
+    if ($invalidLines !== null) {
         return [
             'status' => 'error',
+            'error_code' => 'invalid_upstream_response',
             'method' => 'whois',
-            'server' => $usedServer,
+            'server' => $lastServer,
+            'attempted_servers' => $attemptedServers,
             'parsed' => [],
-            'raw'    => ['Could not reach WHOIS server.'],
+            'raw' => $invalidLines,
+            'web_url' => whoisGetWebLookupUrl($tld),
         ];
     }
-
-    // Check for access denial
-    if (whoisLooksLikeDenied($rawLines)) {
-        // Try IANA WHOIS discovery
-        $other = lookupDomainOtherMethods($domainAscii);
-        if ($other !== null) return $other;
-        $webUrl = whoisGetWebLookupUrl($tld);
-        return [
-            'status'     => 'restricted',
-            'method'     => 'whois',
-            'server'     => $usedServer,
-            'parsed'     => [],
-            'raw'        => $rawLines,
-            'web_url'    => $webUrl,
-        ];
-    }
-
-    // Check for availability
-    if (whoisIndicatesDomainAvailable($rawLines)) {
-        return [
-            'status' => 'available',
-            'method' => 'whois',
-            'server' => $usedServer,
-            'parsed' => [],
-            'raw'    => $rawLines,
-        ];
-    }
-
-    // Registered — parse WHOIS data
-    $censored = censorIPs($rawLines);
     return [
-        'status' => 'registered',
+        'status' => 'error',
+        'error_code' => 'whois_unreachable',
         'method' => 'whois',
-        'server' => $usedServer,
-        'parsed' => parseWhoisData($censored),
-        'raw'    => $rawLines,
+        'server' => $lastServer,
+        'attempted_servers' => $attemptedServers,
+        'parsed' => [],
+        'raw' => ['Could not reach any published WHOIS server. TCP/43 may be blocked by the deployment network or the registry may be temporarily unavailable.'],
+        'web_url' => whoisGetWebLookupUrl($tld),
     ];
 }
 
@@ -377,15 +488,14 @@ function getRoutedProviderForDomain(string $domainAscii): ?array {
  */
 function resolveWhoisServer(string $domainAscii, array $whoisServers): ?string {
     $labels = explode('.', strtolower($domainAscii));
-    $n      = count($labels);
-    // Try SLD.TLD first (e.g. co.uk)
-    if ($n >= 2) {
-        $sld = $labels[$n-2] . '.' . $labels[$n-1];
-        if (isset($whoisServers[$sld])) return $whoisServers[$sld];
+    // Longest suffix wins, including registry structures deeper than co.uk.
+    for ($i = 0, $count = count($labels); $i < $count; $i++) {
+        $suffix = implode('.', array_slice($labels, $i));
+        if (isset($whoisServers[$suffix])) {
+            $server = normalizeWhoisServerHost(trim((string)$whoisServers[$suffix]));
+            if ($server !== null) return $server;
+        }
     }
-    // Try TLD
-    $tld = $labels[$n-1];
-    if (isset($whoisServers[$tld])) return $whoisServers[$tld];
     return null;
 }
 
@@ -397,36 +507,48 @@ function getIANAWhoisServer(string $tld): ?string {
     $tld = strtolower(trim($tld, '.'));
     if (array_key_exists($tld, $cache)) return $cache[$tld];
 
-    // Load persistent cache
-    $persistent = cacheGetOrFetch('iana_whois_servers', CACHE_TTL_IANA, function () { return []; });
-    if (is_array($persistent) && array_key_exists($tld, $persistent)) {
-        return $cache[$tld] = $persistent[$tld];
+    $key = 'iana_whois:' . $tld;
+    $entry = cacheReadEntry($key, 0, CACHE_STALE_MAX_AGE);
+    if ($entry['hit'] && is_string($entry['value'])) {
+        return $cache[$tld] = $entry['value'];
     }
 
-    $lines = queryWhoisServer('whois.iana.org', $tld, 5);
+    $lines = queryWhoisServer('whois.iana.org', $tld, IANA_WHOIS_TIMEOUT);
     $server = null;
     foreach ($lines as $line) {
-        if (preg_match('/^whois:\s*(.+)$/i', trim($line), $m)) {
-            $server = strtolower(trim($m[1]));
-            if ($server === '') $server = null;
+        if (preg_match('/^(?:whois|refer):\s*(.+)$/i', trim($line), $m)) {
+            $server = normalizeWhoisServerHost($m[1]);
             break;
         }
     }
-    // Update persistent cache
-    if (is_array($persistent)) {
-        $persistent[$tld] = $server;
-    } else {
-        $persistent = [$tld => $server];
-    }
-    ensureCacheDir();
-    $file = CACHE_DIR . '/iana_whois_servers.json';
-    $fp = @fopen($file, 'w');
-    if ($fp) {
-        flock($fp, LOCK_EX);
-        fwrite($fp, json_encode($persistent, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-        fflush($fp);
-        flock($fp, LOCK_UN);
-        fclose($fp);
-    }
+    if ($server === null) $server = getIANARegistryMetadata($tld)['server'] ?? null;
+    // Never persist a transient discovery failure for seven days.
+    if ($server !== null) cacheWriteEntry($key, $server, CACHE_TTL_IANA);
+    elseif ($entry['hit'] && is_string($entry['value'])) $server = $entry['value'];
     return $cache[$tld] = $server;
+}
+
+/** HTTPS discovery also works when the deployment blocks IANA TCP/43. */
+function getIANARegistryMetadata(string $tld): array {
+    $tld = strtolower(trim($tld, '.'));
+    if (!preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/D', $tld)) return [];
+    static $memo = [];
+    if (array_key_exists($tld, $memo)) return $memo[$tld];
+    $value = cacheGetOrFetch('iana_registry_v1:' . $tld, CACHE_TTL_IANA, static function () use ($tld) {
+        $response = whoisFetchRdapResponse('https://www.iana.org/domains/root/db/' . $tld . '.html');
+        if (($response['code'] ?? 0) !== 200 || !empty($response['error'])) return null;
+        $html = (string)($response['body'] ?? '');
+        $text = html_entity_decode(preg_replace('/<[^>]*>/', ' ', $html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $metadata = [];
+        if (preg_match('/WHOIS Server:\s*([a-z0-9.-]+)/i', $text, $match)) {
+            $server = normalizeWhoisServerHost($match[1]);
+            if ($server !== null) $metadata['server'] = $server;
+        }
+        if (preg_match('~URL for registration services:.*?<a\b[^>]*href=["\'](https?://[^"\'<>]+)["\']~is', $html, $match)) {
+            $url = html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5, 'UTF-8');
+            if (filter_var($url, FILTER_VALIDATE_URL) && !isset(parse_url($url)['user'])) $metadata['url'] = $url;
+        }
+        return $metadata === [] ? null : $metadata;
+    });
+    return $memo[$tld] = is_array($value) ? $value : [];
 }

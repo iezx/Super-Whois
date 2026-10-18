@@ -127,6 +127,8 @@ function _parseWhoisExtractField(string $line, string $pattern, string $field, b
                 $value = normaliseDate($value);
             $info[$field] = $value;
             $seen[$field] = true;
+        } elseif ($field === 'registrant_address' && !empty($info[$field])) {
+            $info[$field] .= ', ' . $value;
         }
     }
 }
@@ -144,6 +146,10 @@ function parseWhoisData(array $rawResult): array {
         'registrant_name'    => null,
         'registrant_org'     => null,
         'registrant_country' => null,
+        'registrant_address' => null,
+        'registrant_city'    => null,
+        'registrant_region'  => null,
+        'registrant_postal_code' => null,
         'registrant_email'   => null,
         'registrant_phone'   => null,
         'admin_email'        => null,
@@ -205,9 +211,12 @@ function parseWhoisData(array $rawResult): array {
         '/^(?:descr|Description)\s*:/i'                            => ['registrant_org', true],
         '/^(?:Registrant Org)\s*:/i'                               => ['registrant_org', true],
 
+        '/^(?:Registrant Street(?:\s*[12])?|Registrant Address(?:\s*(?:Line\s*)?[12])?|Street Address)\s*:/i' => ['registrant_address', true],
+        '/^(?:Registrant City|Registrant Locality|City)\s*:/i'     => ['registrant_city', true],
+        '/^(?:Registrant State(?:\/Province)?|Registrant Province|Registrant Region|State\/Province|Region)\s*:/i' => ['registrant_region', true],
+        '/^(?:Registrant Postal Code|Registrant ZIP(?: Code)?|Postal Code|ZIP Code)\s*:/i' => ['registrant_postal_code', true],
         '/^Registrant Country\s*:/i'                               => ['registrant_country', true],
         '/^country\s*:/i'                                          => ['registrant_country', true],
-        '/^(?:Registrant State|Registrant City)\s*:/i'             => ['registrant_country', true],
 
         '/^Registrant Email\s*:/i'                                 => ['registrant_email', true],
         '/^Registrant Contact Email\s*:/i'                         => ['registrant_email', true],
@@ -260,6 +269,10 @@ function parseWhoisData(array $rawResult): array {
         'registrant_name' => ['registrant.*name', 'holder.*name', 'owner.*name', 'contact.*name', 'domain holder'],
         'registrant_org'  => ['registrant.*org', 'organization', 'organisation', 'company', 'holder.*org', 'owner.*org'],
         'registrant_country' => ['registrant.*country', 'country', 'registrant.*nation'],
+        'registrant_address' => ['registrant.*address', 'registrant.*street', 'street address'],
+        'registrant_city'    => ['registrant.*city', 'registrant.*locality'],
+        'registrant_region'  => ['registrant.*state', 'registrant.*province', 'registrant.*region'],
+        'registrant_postal_code' => ['registrant.*postal', 'registrant.*zip'],
         'registrant_email'   => ['registrant.*email', 'holder.*email', 'owner.*email', 'contact.*email', 'registrant.*e-mail'],
         'registrant_phone'   => ['registrant.*phone', 'holder.*phone', 'owner.*phone', 'contact.*phone', 'registrant.*tel'],
         'admin_email'     => ['admin.*email', 'administrative.*email', 'billing.*email', 'admin.*contact.*email'],
@@ -275,6 +288,8 @@ function parseWhoisData(array $rawResult): array {
         // trim() (not rtrim) so leading whitespace doesn't break ^ anchor matching.
         // Many WHOIS servers indent their lines.
         $line = trim($rawResult[$idx]);
+        // JPRS uses bracket labels instead of key: value lines.
+        $line = preg_replace('/^(?:[a-z]\.\s*)?\[([^\]]+)\]\s*(.*)$/i', '$1: $2', $line);
         if ($line === '' || $line[0] === '%' || $line[0] === '#') continue;
         // Skip comments and metadata lines (RIPE, APNIC, etc.)
         if (preg_match('/^(?:remarks?|source|nic-hdl|mnt-by|role|abuse-c|rt)\s*:/i', $line)) continue;
@@ -316,7 +331,7 @@ function parseWhoisData(array $rawResult): array {
         //    single-value field, append the value (handles long addresses, etc.)
         if ($rawResult[$idx][0] === ' ' || $rawResult[$idx][0] === "\t") {
             foreach ($seen as $fld => $_) {
-                if (in_array($fld, ['registrant_name','registrant_org','admin_email','tech_email']) && $info[$fld] !== null) {
+                if ($fld === array_key_last($seen) && in_array($fld, ['registrant_name','registrant_org','registrant_address','admin_email','tech_email']) && $info[$fld] !== null) {
                     $trimmed = trim($line);
                     if ($trimmed !== '' && !preg_match('/^(?:%|#)/', $trimmed)) {
                         // Only append if it looks like a continuation (no key: pattern)
@@ -344,6 +359,7 @@ function mergeWhoisRdapData(array $whois, array $rdap): array {
         'registrar', 'registrar_iana_id', 'registrar_whois',
         'abuse_email', 'abuse_phone',
         'registrant_name', 'registrant_org', 'registrant_country',
+        'registrant_address', 'registrant_city', 'registrant_region', 'registrant_postal_code',
         'registrant_email', 'registrant_phone',
         'admin_email', 'tech_email', 'dnssec',
     ];
@@ -365,51 +381,26 @@ function mergeWhoisRdapData(array $whois, array $rdap): array {
  * Detect apex domain when a subdomain is queried (returns null if already apex).
  */
 function detectApexDomain(string $query): ?string {
-    $ascii = idn_to_ascii($query, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+    $ascii = idn_to_ascii(trim($query, '.'), IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
     if ($ascii === false) return null;
-    $labels = explode('.', strtolower($ascii));
-    $n      = count($labels);
-    if ($n < 3) return null;
-    $known2 = [
-        'co.uk','org.uk','me.uk','net.uk','ltd.uk','plc.uk','sch.uk','ac.uk','gov.uk',
-        'com.au','net.au','org.au','edu.au','gov.au','asn.au','id.au',
-        'com.cn','net.cn','org.cn','gov.cn','edu.cn','ac.cn',
-        'bj.cn','sh.cn','tj.cn','cq.cn','he.cn','sx.cn','nm.cn','ln.cn',
-        'jl.cn','hl.cn','js.cn','zj.cn','ah.cn','fj.cn','jx.cn','sd.cn',
-        'ha.cn','hb.cn','hn.cn','gd.cn','gx.cn','hi.cn','sc.cn','gz.cn',
-        'yn.cn','xz.cn','sn.cn','gs.cn','qh.cn','nx.cn','xj.cn','tw.cn',
-        'hk.cn','mo.cn',
-        'co.jp','ne.jp','ac.jp','go.jp','or.jp','gr.jp',
-        'co.nz','net.nz','org.nz','govt.nz','ac.nz',
-        'co.in','net.in','org.in','gov.in','ac.in',
-        'co.za','net.za','org.za','gov.za','ac.za',
-        'com.br','net.br','org.br','gov.br','edu.br',
-        'com.mx','net.mx','org.mx','gob.mx',
-        'com.ar','net.ar','org.ar','gov.ar',
-        'com.sg','net.sg','org.sg','gov.sg','edu.sg',
-        'com.hk','net.hk','org.hk','gov.hk',
-        'com.tw','net.tw','org.tw','gov.tw',
-        'co.kr','or.kr','ne.kr','go.kr','ac.kr',
-        'com.tr','net.tr','org.tr','gov.tr',
-        'com.my','net.my','org.my','gov.my',
-        'com.ph','net.ph','org.ph','gov.ph',
-        'com.pk','net.pk','org.pk','gov.pk',
-        'com.ng','net.ng','org.ng','gov.ng',
-        'co.id','or.id','ac.id','go.id','net.id','sch.id','web.id',
-        'co.th','or.th','ac.th','go.th','net.th',
-        'co.il','org.il','net.il','ac.il','gov.il',
-        'com.vn','net.vn','org.vn','gov.vn',
-        'com.ua','org.ua','net.ua','gov.ua',
-        'com.pl','net.pl','org.pl','gov.pl',
-        'com.ro','net.ro','org.ro','gov.ro',
-        'co.hu','net.hu','org.hu','gov.hu','edu.hu',
-    ];
-    $last2 = $labels[$n-2] . '.' . $labels[$n-1];
-    if (in_array($last2, $known2, true)) {
-        if ($n < 4) return null;
-        return $labels[$n-3] . '.' . $last2;
-    }
-    return $labels[$n-2] . '.' . $labels[$n-1];
+    $registrable = getRegistrableDomain($ascii);
+    if ($registrable === null || strcasecmp($registrable, $ascii) === 0) return null;
+    return $registrable;
+}
+
+/**
+ * Return the readable Unicode form of an IDN A-label, or null when the input
+ * is already Unicode/ASCII or cannot be converted.  The A-label remains the
+ * canonical lookup value; this helper is presentation metadata only.
+ */
+function idnToUnicodeDomain(string $domain): ?string {
+    $candidate = trim($domain, " .\t\n\r\0\x0B");
+    if ($candidate === '' || !function_exists('idn_to_utf8')) return null;
+    $ascii = idn_to_ascii($candidate, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+    if ($ascii === false || $ascii === '') return null;
+    $unicode = idn_to_utf8($ascii, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
+    if ($unicode === false || $unicode === '' || strcasecmp($unicode, $candidate) === 0) return null;
+    return $unicode;
 }
 
 /**
@@ -483,10 +474,10 @@ function detectNSProvider(string $ns): ?string {
  */
 function countryFlag(string $cc): string {
     $cc = strtoupper(trim($cc));
-    if (strlen($cc) !== 2) return '';
+    if (preg_match('/^[A-Z]{2}$/', $cc) !== 1 || !class_exists('IntlChar')) return '';
     $flag = '';
     foreach (str_split($cc) as $c) {
-        $flag .= mb_chr(0x1F1E0 + ord($c) - ord('A'));
+        $flag .= IntlChar::chr(0x1F1E6 + ord($c) - ord('A'));
     }
     return $flag;
 }

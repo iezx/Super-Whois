@@ -7,15 +7,20 @@
  */
 function appendLog(string $event, array $context = []): void {
     $dir = LOG_DIR;
-    if (!is_dir($dir)) { @mkdir($dir, 0750, true); }
-    $file = $dir . '/' . gmdate('Y-m-d') . '.log';
-    $entry = json_encode(array_merge([
+    if (!ensureRuntimeDirectory($dir)) return;
+    $file = $dir . DIRECTORY_SEPARATOR . gmdate('Y-m-d') . '.log';
+    if (!LOG_QUERY_VALUES) {
+        foreach (['query', 'domain'] as $sensitiveKey) unset($context[$sensitiveKey]);
+    }
+    $base = [
         'ts'    => gmdate('Y-m-d\TH:i:s\Z'),
         'event' => $event,
-        'ip'    => getClientIP(),
-    ], $context), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
-    $fp = @fopen($file, 'a');
-    if ($fp) { fwrite($fp, $entry); fclose($fp); }
+    ];
+    if (LOG_CLIENT_IDENTIFIERS) $base['client'] = hash('sha256', getClientIP());
+    $entry = json_encode(array_merge($base, $context),
+        JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . "\n";
+    $fp = @fopen($file, 'ab');
+    if ($fp) { flock($fp, LOCK_EX); fwrite($fp, $entry); flock($fp, LOCK_UN); fclose($fp); }
     // Cleanup old logs roughly 1% of the time to avoid overhead
     if (mt_rand(1, 100) === 1) cleanOldLogs();
 }

@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Super Whois Lookup",
+  "version": "0.0.1",
+  "description": "Fast WHOIS lookup for domains, IPs, and ASNs via Super Whois API.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

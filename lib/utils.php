@@ -38,56 +38,108 @@ function getRIRServer(string $ip): string {
 
 // ── Rate Limiting ──────────────────────────────────────────────────────────
 
+function rateLimitAbort(string $context, int $code, string $message, string $errorCode, array $extra = []): void {
+    http_response_code($code);
+    if ($context === 'api') {
+        if (function_exists('apiError')) apiError($code, $message, $errorCode, $extra);
+        global $apiRequestId;
+        header('Content-Type: application/json; charset=UTF-8');
+        echo json_encode(array_merge([
+            'error' => $message,
+            'error_code' => $errorCode,
+            'code' => $code,
+            'request_id' => $apiRequestId ?? null,
+            'timestamp' => gmdate('Y-m-d\TH:i:s\Z'),
+        ], $extra), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+    } else {
+        echo htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
+    }
+    exit();
+}
+
 /**
  * Enforce per-IP rate limiting using a single JSON file per IP.
  * On success, returns rate limit headers array.
  * On failure, sets HTTP 429 and exits.
  *
- * @param string $context  'web' or 'api' — used for log event name
+ * @param string $context  'web' or 'api' — used for response and logging
+ * @param int $cost        Number of upstream work units consumed
+ * @param string|null $identifier Stable client or API-key identity
+ * @param int|null $limit  Explicit quota; defaults to the public context quota
  */
-function enforceRateLimit(string $context = 'web'): array {
+function enforceRateLimit(string $context = 'web', int $cost = 1, ?string $identifier = null, ?int $limit = null): array {
     $dir = RATE_STORE;
-    if (!is_dir($dir)) @mkdir($dir, 0700, true);
-    $ip   = getClientIP();
-    $key  = preg_replace('/[^a-z0-9.:]/i', '_', strtolower($ip));
-    $file = $dir . '/' . $key . '.json';
-    $now  = time();
-    $fp   = fopen($file, 'c+');
-    if (!$fp) {
+    if (!ensureRuntimeDirectory($dir)) {
         appendLog('rate_store_error', ['context' => $context]);
-        http_response_code(500);
-        exit('Rate limit storage unavailable.');
+        rateLimitAbort($context, 503, 'Rate limit storage unavailable.', 'rate_store_unavailable');
     }
-    flock($fp, LOCK_EX);
-    $size = filesize($file);
+    $identifier = $identifier ?? ('ip:' . getClientIP());
+    $key = hash('sha256', $context . ':' . strtolower($identifier));
+    $file = $dir . DIRECTORY_SEPARATOR . $key . '.json';
+    $now  = time();
+    $cost = max(1, $cost);
+    $limit = $limit ?? ($context === 'api' ? API_RATE_LIMIT : WEB_RATE_LIMIT);
+    $fp = @fopen($file, 'c+');
+    if ($fp === false) {
+        appendLog('rate_store_error', ['context' => $context]);
+        rateLimitAbort($context, 503, 'Rate limit storage unavailable.', 'rate_store_unavailable');
+    }
+    if (!flock($fp, LOCK_EX)) {
+        fclose($fp);
+        appendLog('rate_store_error', ['context' => $context]);
+        rateLimitAbort($context, 503, 'Rate limit storage unavailable.', 'rate_store_unavailable');
+    }
+    $stat = fstat($fp);
+    $size = (int)($stat['size'] ?? 0);
     $raw  = $size > 0 ? fread($fp, $size) : '';
+    if ($raw === false) {
+        flock($fp, LOCK_UN); fclose($fp);
+        appendLog('rate_store_error', ['context' => $context]);
+        rateLimitAbort($context, 503, 'Rate limit storage unavailable.', 'rate_store_unavailable');
+    }
     $data = json_decode($raw, true) ?: ['count' => 0, 'reset' => $now + RATE_WINDOW];
-    if ($now > $data['reset'] || !isset($data['count'])) {
+    if (!isset($data['reset'], $data['count']) || $now > (int)$data['reset']) {
         $data = ['count' => 0, 'reset' => $now + RATE_WINDOW];
     }
-    $data['count']++;
-    ftruncate($fp, 0); rewind($fp);
-    fwrite($fp, json_encode($data));
-    fflush($fp); flock($fp, LOCK_UN); fclose($fp);
+    $data['count'] += $cost;
+    $encoded = json_encode($data);
+    $writeOk = is_string($encoded) && ftruncate($fp, 0) && rewind($fp)
+        && fwrite($fp, $encoded) === strlen($encoded) && fflush($fp);
+    flock($fp, LOCK_UN); fclose($fp);
+    if (!$writeOk) {
+        appendLog('rate_store_error', ['context' => $context]);
+        rateLimitAbort($context, 503, 'Rate limit storage unavailable.', 'rate_store_unavailable');
+    }
 
     $headers = [
-        'X-RateLimit-Limit'     => RATE_LIMIT,
-        'X-RateLimit-Remaining' => max(0, RATE_LIMIT - $data['count']),
+        'RateLimit-Limit'       => $limit,
+        'RateLimit-Remaining'   => max(0, $limit - $data['count']),
+        'RateLimit-Reset'       => max(0, $data['reset'] - $now),
+        'X-RateLimit-Limit'     => $limit,
+        'X-RateLimit-Remaining' => max(0, $limit - $data['count']),
         'X-RateLimit-Reset'     => $data['reset'],
     ];
 
-    if ($data['count'] > RATE_LIMIT) {
+    if ($data['count'] > $limit) {
         appendLog('rate_limit_exceeded', ['context' => $context, 'count' => $data['count']]);
         http_response_code(429);
+        header('Retry-After: ' . max(1, $data['reset'] - $now));
         if ($context === 'api') {
-            header('Content-Type: application/json');
             foreach ($headers as $k => $v) header("$k: $v");
-            echo json_encode(['error' => 'Rate limit exceeded.', 'code' => 429,
-                'retry_after' => $data['reset']]);
+            rateLimitAbort('api', 429, 'Rate limit exceeded.', 'rate_limit_exceeded', [
+                'retry_after' => max(1, $data['reset'] - $now),
+                'reset_at' => gmdate('Y-m-d\TH:i:s\Z', $data['reset']),
+            ]);
         } else {
             echo 'Rate limit exceeded. Try again after ' . gmdate('H:i', $data['reset']) . ' UTC.';
         }
         exit();
+    }
+    if (random_int(1, 200) === 1) {
+        $cutoff = $now - (RATE_WINDOW * 2);
+        foreach (glob($dir . DIRECTORY_SEPARATOR . '*.json') ?: [] as $candidate) {
+            if ((int)@filemtime($candidate) < $cutoff) @unlink($candidate);
+        }
     }
     return $headers;
 }
@@ -97,11 +149,16 @@ function enforceRateLimit(string $context = 'web'): array {
  */
 function sanitizeQuery(string $input): string {
     $q = trim($input);
+    if (strlen($q) > 2048) return '';
     $q = preg_replace('/^https?:\/\//i', '', $q);
     $q = explode('/', $q, 2)[0];
-    $q = preg_replace('/:\d+$/', '', $q);
     $q = preg_replace('/\s+/', '', $q);
-    return substr($q, 0, 253);
+    if (preg_match('/^\[([^\]]+)\](?::\d+)?$/', $q, $match)
+        && filter_var($match[1], FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+        return strtolower($match[1]);
+    }
+    if (substr_count($q, ':') <= 1) $q = preg_replace('/:\d+$/', '', $q);
+    return rtrim($q, '.');
 }
 
 /**
@@ -113,6 +170,7 @@ function classifyQuery(string $q): string {
     if (preg_match('/^AS\d{1,10}$/i', $q))                   return 'asn';
     $ascii = idn_to_ascii($q, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46);
     if ($ascii !== false
+        && strlen($ascii) <= API_MAX_QUERY_LENGTH
         && filter_var($ascii, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)
         && substr_count($ascii, '.') >= 1)
         return 'domain';
